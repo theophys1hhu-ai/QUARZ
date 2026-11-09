@@ -2,6 +2,10 @@
 // (du = 3 r^2 dr removes the u^{-2/3} singularity of w at u -> 0; the integrands are smooth in r).
 #include "QEDRates.hpp"
 
+#include <cstdio>
+#include <map>
+#include <stdexcept>
+
 namespace quarz {
 namespace qed {
 
@@ -87,6 +91,121 @@ RateTable make_rate_table(double chi_min, double chi_max, double ppd) {
         o[6] = RMAX_SAFETY * max_rate_r(chi);
     }, std::vector<int>(7, LogTable::Log), "qed.rate_table");
     return T;
+}
+
+namespace {
+std::string num(double v) {
+    char b[32];
+    std::snprintf(b, sizeof b, "%.17g", v);
+    return b;
+}
+// meta entries of a table file; points_per_decade is the effective (n - 1) / decades (informational)
+std::map<std::string, std::string> table_meta(const char* kind, const LogTable& t) {
+    std::map<std::string, std::string> m{{"table", kind}, {"version", std::to_string(TABLE_VERSION)},
+                                         {"points_per_decade", num((t.size() - 1) / std::log10(t.axis_max() / t.axis_min()))}};
+    if (std::string(kind) == "qed.rate") m["rmax_safety"] = num(RMAX_SAFETY);
+    return m;
+}
+// number of grid points LogTable::build makes for these parameters
+int grid_points(double lo, double hi, double ppd) {
+    return std::max(4, static_cast<int>(std::ceil(std::log10(hi / lo) * ppd)) + 1);
+}
+// "" if the file's meta identifies a table of this kind and version, else the reason
+std::string check_meta(const char* kind, const std::map<std::string, std::string>& m) {
+    auto get = [&](const char* k) { auto it = m.find(k); return it == m.end() ? std::string() : it->second; };
+    if (get("table") != kind) return "not a " + std::string(kind) + " table";
+    if (get("version") != std::to_string(TABLE_VERSION))
+        return "table version " + (get("version").empty() ? std::string("?") : get("version")) + ", expected " + std::to_string(TABLE_VERSION);
+    if (std::string(kind) == "qed.rate" && get("rmax_safety") != num(RMAX_SAFETY)) return "different rmax_safety";
+    return "";
+}
+const std::vector<std::string> BESSEL_LABELS{"exp(y)K_1/3", "exp(y)K_2/3", "exp(y)IntK_1/3"};
+const std::vector<std::string> RATE_LABELS{"W", "G", "Xi", "K", "Wu", "Gu", "Rmax"};
+
+template <class Tab, class Load, class Build>
+Tab load_or_build(const char* kind, const std::string& path, double lo, double hi, double ppd, bool write,
+                  std::string* status, Load load, Build build, void (*save)(const Tab&, const std::string&)) {
+    std::string why;
+    if (!path.empty()) {
+        if (FILE* fp = std::fopen(path.c_str(), "r")) {
+            std::fclose(fp);
+            try {
+                std::vector<std::string> lab;
+                std::map<std::string, std::string> m;
+                const LogTable t = LogTable::load(path, &lab, &m);
+                why = check_meta(kind, m);
+                if (why.empty() && (t.axis_min() != lo || t.axis_max() != hi || t.size() != grid_points(lo, hi, ppd)))
+                    why = "different range or points per decade";
+                if (why.empty()) {
+                    if (status) *status = "loaded";
+                    return load(t);
+                }
+            } catch (const std::exception& e) {
+                why = e.what();
+            }
+        } else {
+            why = "no file";
+        }
+    }
+    Tab T = build();
+    std::string st = "built";
+    if (!path.empty() && write) {
+        save(T, path);
+        st += why == "no file" ? " (saved)" : " (" + why + "; saved)";
+    } else if (!path.empty()) {
+        st += " (" + why + ")";
+    }
+    if (status) *status = st;
+    return T;
+}
+} // namespace
+
+void save_bessel_table(const BesselTable& T, const std::string& path) {
+    T.t.save(path, BESSEL_LABELS, table_meta("qed.bessel", T.t));
+}
+void save_rate_table(const RateTable& T, const std::string& path) {
+    T.t.save(path, RATE_LABELS, table_meta("qed.rate", T.t));
+}
+
+namespace {
+BesselTable bessel_from(const LogTable& t) {
+    BesselTable T;
+    T.t = t;
+    T.y_min = t.axis_min();
+    T.y_max = t.axis_max();
+    return T;
+}
+RateTable rate_from(const LogTable& t) {
+    RateTable T;
+    T.t = t;
+    return T;
+}
+} // namespace
+
+BesselTable load_bessel_table(const std::string& path) {
+    std::map<std::string, std::string> m;
+    const LogTable t = LogTable::load(path, nullptr, &m);
+    const std::string why = check_meta("qed.bessel", m);
+    if (!why.empty() || t.ncomp() != 3) throw std::runtime_error("load_bessel_table: " + path + ": " + (why.empty() ? "3 columns expected" : why));
+    return bessel_from(t);
+}
+RateTable load_rate_table(const std::string& path) {
+    std::map<std::string, std::string> m;
+    const LogTable t = LogTable::load(path, nullptr, &m);
+    const std::string why = check_meta("qed.rate", m);
+    if (!why.empty() || t.ncomp() != 7) throw std::runtime_error("load_rate_table: " + path + ": " + (why.empty() ? "7 columns expected" : why));
+    return rate_from(t);
+}
+
+BesselTable bessel_table(const std::string& path, double y_min, double y_max, double ppd, bool write, std::string* status) {
+    return load_or_build<BesselTable>("qed.bessel", path, y_min, y_max, ppd, write, status,
+        [&](const LogTable& t) { if (t.ncomp() != 3) throw std::runtime_error("3 columns expected"); return bessel_from(t); },
+        [&] { return make_bessel_table(y_min, y_max, ppd); }, save_bessel_table);
+}
+RateTable rate_table(const std::string& path, double chi_min, double chi_max, double ppd, bool write, std::string* status) {
+    return load_or_build<RateTable>("qed.rate", path, chi_min, chi_max, ppd, write, status,
+        [&](const LogTable& t) { if (t.ncomp() != 7) throw std::runtime_error("7 columns expected"); return rate_from(t); },
+        [&] { return make_rate_table(chi_min, chi_max, ppd); }, save_rate_table);
 }
 
 } // namespace qed

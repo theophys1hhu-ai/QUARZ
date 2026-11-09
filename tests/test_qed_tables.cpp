@@ -5,12 +5,15 @@
 //     fall-back outside the range; coefficients(u, chi, table) vs coefficients(u, chi)
 //  3. Rate table (log chi) vs the quadratures integrals(); Rmax an upper bound within 2 %; max_rate_r vs a scan
 //  4. device kernel = host; timing of table vs direct evaluation (informational)
+//  5. files: save/load round trip (bit-identical), header, corrupted files, QED meta checks, load-or-build
 #include "QEDRates.hpp"
 
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <map>
 #include <random>
+#include <string>
 
 using namespace quarz;
 using namespace quarz::qed;
@@ -214,12 +217,115 @@ static void timing() {
     }
 }
 
+// device evaluation of all columns at many x: bit-identical tables give identical results
+static bool same_eval(const LogTable& A, const LogTable& B, double lo, double hi) {
+    const int N = 20000, nc = A.ncomp();
+    int bad = 0;
+    Kokkos::parallel_reduce("tab.same", Kokkos::RangePolicy<>(0, N), KOKKOS_LAMBDA(int i, int& b) {
+        const double x = lo * Kokkos::pow(hi / lo, (i + 0.37) / N);
+        for (int c = 0; c < nc; ++c)
+            if (A.eval(c, x) != B.eval(c, x)) ++b;
+    }, bad);
+    return bad == 0;
+}
+
+static std::string slurp(const std::string& path) {
+    std::string s;
+    if (FILE* fp = std::fopen(path.c_str(), "r")) {
+        char b[4096];
+        size_t n;
+        while ((n = std::fread(b, 1, sizeof b, fp)) > 0) s.append(b, n);
+        std::fclose(fp);
+    }
+    return s;
+}
+static void spit(const std::string& path, const std::string& s) {
+    FILE* fp = std::fopen(path.c_str(), "w");
+    std::fputs(s.c_str(), fp);
+    std::fclose(fp);
+}
+template <class F>
+static bool throws(F f) {
+    try { f(); } catch (const std::exception&) { return true; }
+    return false;
+}
+
+static void files() {
+    std::printf("5. Table files (plain text *.lut)\n");
+    const std::string f1 = "test_qed_tables_generic.lut", f2 = "test_qed_tables_rate.lut", f3 = "test_qed_tables_cache.lut";
+    auto f = [](double x, double* o) { o[0] = std::sin(x); o[1] = std::exp(-x) * x; o[2] = -1 / (1 + x * x); };
+    const LogTable T = LogTable::build(1e-3, 30, 20, 3, f, {LogTable::Linear, LogTable::Log, LogTable::Log}, "gen");
+    T.save(f1, {"sin", "x_exp(-x)", "-1/(1+x^2)"}, {{"origin", "unit test"}, {"answer", "42"}});
+    std::vector<std::string> lab;
+    std::map<std::string, std::string> meta;
+    const LogTable L = LogTable::load(f1, &lab, &meta);
+    bool vals = L.size() == T.size() && L.ncomp() == 3 && L.axis_min() == T.axis_min() && L.axis_max() == T.axis_max();
+    for (int i = 0; vals && i < T.size(); ++i)
+        for (int c = 0; c < 3; ++c) vals = vals && L.value(i, c) == T.value(i, c) && L.mode(c) == T.mode(c);
+    check(vals && same_eval(T, L, 1e-4, 100), "save/load: values, modes, axis bit-identical; evaluation (incl. extrapolation) identical");
+    check(lab.size() == 3 && lab[1] == "x_exp(-x)" && meta["origin"] == "unit test" && meta["answer"] == "42" && L.name() == "gen",
+          "labels, meta entries (values with spaces) and name restored");
+    const std::string txt = slurp(f1);
+    check(txt.rfind("# QUARZ LogTable 1\n# name gen\n", 0) == 0 && txt.find("# modes lin log log") != std::string::npos &&
+          txt.find("# x sin x_exp(-x) -1/(1+x^2)") != std::string::npos, "human-readable header (magic, modes, column labels)");
+    // corrupted files
+    spit(f3, "# not a table\n");
+    const bool e1 = throws([&] { LogTable::load(f3); });
+    spit(f3, txt.substr(0, txt.rfind('\n', txt.size() - 2) + 1));   // last data line missing
+    const bool e2 = throws([&] { LogTable::load(f3); });
+    std::string bad = txt;
+    const size_t p = bad.find("\n0.001") + 1;   // first data line: x moved off the grid
+    bad.replace(p, 5, "0.002");
+    spit(f3, bad);
+    const bool e3 = throws([&] { LogTable::load(f3); });
+    const bool e4 = throws([&] { LogTable::load("does_not_exist.lut"); });
+    const bool e5 = throws([&] { T.save(f3, {"two words", "b", "c"}); });
+    check(e1 && e2 && e3 && e4 && e5, "errors: wrong magic, missing data line, x off the grid, no file, label with a space");
+    // QED tables
+    const auto t0 = std::chrono::steady_clock::now();
+    const RateTable R = make_rate_table();
+    const auto t1 = std::chrono::steady_clock::now();
+    save_rate_table(R, f2);
+    const auto t2 = std::chrono::steady_clock::now();
+    const RateTable RL = load_rate_table(f2);
+    const auto t3 = std::chrono::steady_clock::now();
+    auto ms = [](auto a, auto b) { return std::chrono::duration<double, std::milli>(b - a).count(); };
+    char m[200];
+    std::snprintf(m, sizeof m, "rate table: load identical (build %.1f ms, save %.2f ms, load %.2f ms, %zu bytes)",
+                  ms(t0, t1), ms(t1, t2), ms(t2, t3), slurp(f2).size());
+    check(same_eval(R.t, RL.t, 1e-6, 1e5), m);
+    check(throws([&] { load_bessel_table(f2); }) && throws([&] { load_rate_table(f1); }),
+          "load_bessel_table on a rate table, load_rate_table on a generic table: rejected");
+    // load or build
+    std::remove(f3.c_str());
+    std::string st1, st2, st3, st4, st5;
+    const BesselTable B1 = bessel_table(f3, 1e-6, Y_MAX, 32, true, &st1);
+    const BesselTable B2 = bessel_table(f3, 1e-6, Y_MAX, 32, true, &st2);
+    check(st1 == "built (saved)" && st2 == "loaded" && same_eval(B1.t, B2.t, 1e-6, Y_MAX) && B2.y_min == 1e-6 && B2.y_max == Y_MAX,
+          ("bessel_table(): first call " + st1 + ", second " + st2 + ", identical").c_str());
+    bessel_table(f3, 1e-6, Y_MAX, 16, false, &st3);
+    std::string v = slurp(f3);
+    v.replace(v.find("# meta version 1"), 16, "# meta version 0");
+    spit(f3, v);
+    bessel_table(f3, 1e-6, Y_MAX, 32, false, &st4);
+    rate_table(f3, 1e-5, 1e4, 32, false, &st5);
+    std::printf("    other parameters: %s\n    old version: %s\n    other kind: %s\n", st3.c_str(), st4.c_str(), st5.c_str());
+    check(st3.find("different range or points") != std::string::npos && st4.find("table version 0") != std::string::npos &&
+          st5.find("not a qed.rate") != std::string::npos, "other parameters, old version, other kind: rebuilt (write = false: file kept)");
+    std::string st6;
+    std::remove("test_qed_tables_none.lut");
+    rate_table("test_qed_tables_none.lut", 1e-5, 1e4, 32, false, &st6);
+    check(st6 == "built (no file)" && slurp("test_qed_tables_none.lut").empty(), "write = false: no file written");
+    for (const auto& fn : {f1, f2, f3}) std::remove(fn.c_str());
+}
+
 int main(int argc, char** argv) {
     Kokkos::initialize(argc, argv);
     generic();
     bessel_table();
     rate_table();
     timing();
+    files();
     Kokkos::finalize();
     std::printf("%s (%d failures)\n", failures ? "FAILED" : "all tests passed", failures);
     return failures ? 1 : 0;

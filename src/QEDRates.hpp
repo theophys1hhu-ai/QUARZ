@@ -240,6 +240,24 @@ struct RateTable {
 };
 RateTable make_rate_table(double chi_min = 1e-5, double chi_max = 1e4, double points_per_decade = 32);
 
+// ---- table files (plain text, LogTable format, "*.lut" by convention; exact round trip).
+// The files carry meta entries: table (qed.bessel / qed.rate), version (TABLE_VERSION, raised whenever
+// the tabulated functions change), the effective points_per_decade, and for the rate table rmax_safety.
+constexpr int TABLE_VERSION = 1;
+void save_bessel_table(const BesselTable& T, const std::string& path);
+void save_rate_table(const RateTable& T, const std::string& path);
+// throw if the file is not a table of that kind and version
+BesselTable load_bessel_table(const std::string& path);
+RateTable load_rate_table(const std::string& path);
+// The table for these parameters: loaded from path if that file exists and holds a table of this kind,
+// version and parameters (same axis ends and number of points); otherwise built, and saved to path if write (with MPI: write on one rank only).
+// An empty path just builds. status (optional) receives "loaded", "built", "built (saved)" or
+// "built (<reason>)".
+BesselTable bessel_table(const std::string& path, double y_min = 1e-6, double y_max = Y_MAX,
+                         double points_per_decade = 32, bool write = true, std::string* status = nullptr);
+RateTable rate_table(const std::string& path, double chi_min = 1e-5, double chi_max = 1e4,
+                     double points_per_decade = 32, bool write = true, std::string* status = nullptr);
+
 // ---- u-integrals (host; quadrature). All per C0, i.e. the rates are C0 times these.
 struct Integrals {
     double W = 0;    // int w du                     total emission rate (spin-averaged)
