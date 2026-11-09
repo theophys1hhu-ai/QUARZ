@@ -328,3 +328,34 @@ out_opmd_nat vs out_opmd_p2n: iterations [0, 2], max rel diff 0.00e+00
   axis     max rel diff 0.00e+00  (axis_000000.txt col 0)
   beamlog  max rel diff 0.00e+00  (beams.txt col 1)
   fields   max rel diff 0.00e+00  (fields_000000.bin:psi)
+== 26. photon emission (nonlinear Compton, LCFA) with spin and photon polarization: electrons in a constant field B ==
+ (a) photon number and spectrum without recoil, spin averaged (inversion sampler unless noted):
+  chi = 1, s2 = +0: 26119 photons, expected 25956.9 (+1.01 sigma); spectrum chi^2/dof = 0.84 (20 bins); <u> = 0.11826 (expected 0.11740)
+   rejection sampler:
+  chi = 1, s2 = +0: 25994 photons, expected 25956.9 (+0.23 sigma); spectrum chi^2/dof = 0.48 (20 bins); <u> = 0.11736 (expected 0.11740)
+ (b) spin-resolved emission (spin fixed along +-B, no recoil): rate and spectrum difference, photon polarization:
+  chi = 1: photon number ratio s2 = +1 / -1: 0.9180 +- 0.0080, expected (W + G)/(W - G) = 0.9128 (+0.65 sigma); (dN+ - dN-)/du vs 2 C0 g: chi^2/dof = 0.29
+  chi = 1, s2 = +0: <xi_3> = 0.53411 +- 0.00028, eq. 22: 0.53429 (-0.63 sigma); <xi_1>, <xi_2> = 0.0e+00, 0.0e+00 (0); xi_3(u) vs eq. 21: chi^2/dof = 0.73 (10 bins)
+  chi = 1, s2 = +1: <xi_3> = 0.47528 +- 0.00108, eq. 22: 0.47633 (-0.97 sigma); <xi_1>, <xi_2> = 0.0e+00, 0.0e+00 (0); xi_3(u) vs eq. 21: chi^2/dof = 0.84 (10 bins)
+  chi = 1, s2 = -1: <xi_3> = 0.58746 +- 0.00061, eq. 22: 0.58721 (+0.41 sigma); <xi_1>, <xi_2> = 0.0e+00, 0.0e+00 (0); xi_3(u) vs eq. 21: chi^2/dof = 0.32 (10 bins)
+ (c) radiative polarization (Sokolov-Ternov) at fixed chi = 1, spin initially along +B, vs eq. 14:
+   mixed states, inversion sampler:
+  chi = 1, S0 = +1: <s2>(t) vs eq. 14 over 4.2 relaxation times: max |diff| 0.0442 (1.1 sigma); final -0.8048 (eq. 14: -0.8106, limit S_inf = -0.8375)
+   pure states, rejection sampler:
+  chi = 1, S0 = +1: <s2>(t) vs eq. 14 over 4.2 relaxation times: max |diff| 0.0500 (1.5 sigma); final -0.8000 (eq. 14: -0.8106, limit S_inf = -0.8375)
+ (d) energy loss with recoil:
+  chi_0 = 0.1: <gamma>(t)/gamma_ODE - 1 over 101 steps (gamma 1e+05 -> 6.815e+04): max 5.64e-03; energy balance (photons - electron loss)/loss = 7.4e-09
+  chi_0 = 1 (strong straggling), dt = 1 vs 0.25 (sub-cycled push): final <gamma> 16896 vs 15573.9 (+2.13 sigma), gamma_rms 10261 vs 9356.6
+ (e) the external field alone (no QED): rotation of the momentum, gamma = 1e4, B = 10:
+  no QED, gamma = 1e+04, B = 10, 100 steps: rotation angle / (B t / gamma) - 1 = 8.4e-08; |p| change 0.0e+00
+ (f) restart, threads, MPI (expected: photon records, qed.txt, particles and spins bit-identical):
+   restart (mixed states, inversion sampler):
+  steps 4-9: photon records (2879) identical, qed.txt identical
+   restart (pure states, rejection sampler):
+  steps 4-9: photon records (2795) identical, qed.txt identical
+   1 vs 2 threads:
+  steps 0-9: photon records (4596) identical, qed.txt identical
+   2 ranks vs serial:
+  beamlog  max rel diff 0.00e+00  (beams.txt col 1)
+  dumps    max rel diff 0.00e+00  (beam_e_000000.bin:x)
+  photons  max rel diff 0.00e+00  (photons_e.bin:step)

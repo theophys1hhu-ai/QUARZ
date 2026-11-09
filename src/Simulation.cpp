@@ -212,6 +212,7 @@ Simulation::Simulation(const Config& cfg) : cfg_(cfg), comm_(Comm::world()) {
             std::cout << "Beam '" << beams_[b]->name() << "': " << nglobal[b] << " macro-particles"
                       << (beams_[b]->rigid() ? " (rigid)" : "") << "\n";
             if (beams_[b]->scattering()) std::cout << "  " << beams_[b]->scattering_description() << "\n";
+            if (beams_[b]->qed()) std::cout << "  " << beams_[b]->qed_description() << "\n";
         }
         std::filesystem::create_directories(outdir_);
         grid_->write(outdir_ + "/grid.txt");
@@ -249,6 +250,7 @@ Simulation::Simulation(const Config& cfg) : cfg_(cfg), comm_(Comm::world()) {
         else spinlog_.open(outdir_ + "/spin.part" + std::to_string(r));
         if (P == 1 && fresh_spin) spinlog_ << "# beam step t <s_x> <s_y> <s_z> P = |<s>| (weighted means over live particles)\n";
     }
+    setup_qed();
 
     // ---- laser envelope
     if (cfg.has("laser.a0")) {
@@ -1242,7 +1244,7 @@ void Simulation::merge_partial_outputs() {
             std::string bname = leaf.substr(5);
             bname = bname.substr(0, bname.rfind('_'));
             size_t nc = 7;
-            for (const auto& b : beams_) if (b->name() == bname) nc = static_cast<size_t>(b->ncomp());
+            for (const auto& b : beams_) if (b->name() == bname) nc = static_cast<size_t>(b->dump_ncomp());
             std::vector<double> all;
             for (int r = 0; r < P; ++r) {
                 std::ifstream in(base + ".part" + std::to_string(r), std::ios::binary);
@@ -1403,6 +1405,7 @@ void Simulation::run() {
             const Real dkick = Real(0.5) * (dt_prev_ + cur_dt_), ddrift = cur_dt_;
             for (size_t b = 0; b < beams_.size(); ++b) {
                 beams_[b]->push(fld, dkick, ddrift, laser_ ? laser_->ponderomotive() : View3D(), diag, n);
+                if (beams_[b]->qed()) write_photons(n, b);
                 if (P > 1) {
                     auto out = beams_[b]->extract_outgoing();
                     if (rank < P - 1) outbox_[b].insert(outbox_[b].end(), out.begin(), out.end());
@@ -1438,10 +1441,14 @@ void Simulation::run() {
         if (g.opmd) g.opmd->close();
     beamlog_.close();
     if (spinlog_.is_open()) spinlog_.close();
+    if (qedlog_.is_open()) qedlog_.close();
+    for (auto& f : photon_files_) if (f) { std::fclose(f); f = nullptr; }
     laserlog_.close();
     ionlog_.close();
     const double tmax = comm_.allreduce_max(total.seconds());
+    if (P > 1) comm_.barrier();   // all rank parts of the photon records are closed
     if (P > 1 && comm_.root()) merge_partial_outputs();
+    if (P > 1 && comm_.root() && any_qed_) merge_photon_outputs();
     comm_.barrier();
     if (comm_.root() && (chk_every_ > 0 || chk_at_end_)) prune_checkpoints();
     if (comm_.root()) std::cout << "Total run time " << tmax << " s\n";

@@ -306,11 +306,51 @@ and new momenta, and the rotation by Ω Δt is done Boris-style, so |s| = 1 to r
 scheme is second order. Coulomb scattering (above) deflects in the electric fields of charges at
 rest: each random kick also turns the spin about the same axis by κ θ, κ = γβ²(a + 1/(γ+1)) (the
 T-BMT rate ratio for B = 0, E ⊥ β). A spin–field coupling back on the orbit (Stern–Gerlach force)
-and radiative polarization (Sokolov–Ternov) are not included (both negligible for plasma
-accelerators). Output: `spin.txt` (weighted ⟨s⟩ and the polarization |⟨s⟩| of every beam with
+is not included (negligible for plasma accelerators); radiative polarization (Sokolov–Ternov) comes
+with the photon emission (below). Output: `spin.txt` (weighted ⟨s⟩ and the polarization |⟨s⟩| of every beam with
 spin, at each step), s_x, s_y, s_z appended to the particle dumps and the openPMD record `spin`.
 Cost: a beam-only test (10⁶ particles, 1 thread, no plasma particles) runs 17 % longer with spin;
 in a run with plasma this is negligible.
+
+**Photon emission (strong-field QED, nonlinear Compton scattering)**, `<beam>.qed = 1` (electrons and
+positrons; needs `units.n0_cm3`). Following the QED module of O. Mathiak, A. Pukhov et al. (QV3D), in the
+locally-constant-field approximation, with the spin of the lepton and the polarization of the photon:
+- **Rate** (`src/QEDRates.*`). With u = ε_γ/ε_e the photon energy fraction, χ = η √((γE + u×B)² − (u·E)²)
+  (η = ħω_p/mc², code units) and y = 2u/(3(1 − u)χ), the emission probability per time and u is
+  C₀/4 (w + ⟨g, S_i⟩ + ⟨p_f, S_f⟩ + ⟨p_ξ, ξ⟩), C₀ = α/(√3 π η γ), with w = ((1 − u) + 1/(1 − u)) K₂/₃(y)
+  − IntK₁/₃(y), g = −u K₁/₃ e₂ and the vectors p_f (final spin) and p_ξ (photon Stokes vector) in the basis
+  e_v (momentum), e₁ (transverse Lorentz force, so the charge sign enters here), e₂ = e_v × e₁. Summed over
+  final states: C₀ (w + g s₂), s₂ = ⟨S, e₂⟩. The Bessel functions (`src/Bessel.hpp`: Airy series and
+  rational approximations) and the u-integrals are tabulated on logarithmic axes (`src/LogTable.hpp`:
+  K's on log y; W = ∫w du, G = ∫g du, … on log χ; the cumulative spectrum on log χ × logit u). The tables
+  are built at start (0.2 s) or loaded from / saved to `qed.table_dir` (plain text `*.lut`).
+- **Samplers** (`src/QEDSampling.*`). `inversion` (default): every particle carries an optical depth
+  τ = −ln ξ that decreases at the total rate C₀(W + G s₂); at τ = 0 a photon is emitted with u from the
+  inverted cumulative spectrum (several photons per step are possible). `rejection` (Algorithm 1 of the
+  QED module): one trial per sub-step, u = r³ accepted with probability C₀ h 3r²(w + g s₂).
+- **Sub-cycling.** The particle push (fields, Lorentz kick, T-BMT, emission, drift) is sub-cycled per
+  particle into n = ⌈C₀ Δt R_max(χ)/p_max⌉ sub-steps (`qed.max_prob` = p_max, R_max = max of the sampling
+  density over u and spin) in the frozen fields of the step; the momentum leaves the step at the same
+  half step as without sub-cycling (a final kick of −(Δt − h)/2), so n = 1 is the ordinary leapfrog.
+- **Recoil and spin.** The lepton keeps its direction and its energy becomes (1 − u)ε; the photon
+  momentum is uγ e_v. Spin: `qed.spin_model = mixed` (default; the spin of a macro-particle is an average,
+  |S| ≤ 1, and takes the expectation values S_f = p_f/(w + ⟨g, S⟩)) or `pure` (|S| = 1, collapse to
+  ±p_f/|p_f|). Without emission the spin changes by the selection bias: eq. 8 of the QED module for the
+  rejection sampler (a trial per sub-step); for the inversion sampler its continuous-time form (the
+  exact solution of dS/dt = C₀G(s₂S − e₂) between emissions; eq. 8 would overstate it there by 1/p₀).
+  In a constant field this gives the equilibrium polarization −8√3/15 (Sokolov–Ternov) for χ → 0,
+  −0.84 at χ = 1. Beams without `<beam>.spin` use the spin-averaged rates.
+- **Output**: `photons_<beam>.bin` (one record per photon: step, time, position of the emitter, photon
+  momentum, weight, Stokes vector, χ) and `qed.txt` (per step: photon number, Σw, Σw ε_γ, Σw χ), see §6.
+  Records are sorted within each step, so the files do not depend on threads or MPI ranks; random numbers
+  come from a hash of the particle state (restarts and MPI runs are bit-identical).
+- Not included: pair creation (Breit–Wheeler), emission in the laser field (the envelope has no
+  oscillating field), plasma electrons. `pusher.beam = imp_rr` (classical radiation reaction) cannot be
+  combined with `<beam>.qed`.
+
+**External fields** (`fields.external_E`, `fields.external_B`: three numbers each, units m c ω_p/e):
+constant fields added to the fields acting on the beams (not on the plasma), e.g. for single-particle
+tests of the photon emission.
 
 Leapfrog start-up uses a half kick. The quantity 1 − v_z is evaluated as
 (1+p⊥²)/(γ(γ+p_z)) to avoid cancellation.
@@ -820,6 +860,16 @@ The generated grid is written to `out/grid.txt` (j, r_j, h_j, V_j).
 | `<beam>.spin` | — | three numbers: initial spin direction (normalised); switches on the Thomas–BMT spin precession, see §1 |
 | `<beam>.anomalous_moment` | by mass (e±, μ, p) | a = (g − 2)/2; required for other masses |
 | `scattering.factor`, `scattering.seed` | 1, 1 | multiplies the scattering rate (testing only); random seed |
+| `<beam>.qed` | 0 | photon emission (nonlinear Compton scattering) of an electron/positron beam, see §1; needs `units.n0_cm3` |
+| `qed.sampler` | `inversion` | `inversion` (optical depth, inverse cumulative spectrum) \| `rejection` (one trial per sub-step) |
+| `qed.spin_model` | `mixed` | `mixed` (\|S\| ≤ 1, expectation values) \| `pure` (\|S\| = 1, stochastic collapse); only for beams with `<beam>.spin` |
+| `qed.max_prob` | 0.1 | largest emission probability per sub-step; sets the number of sub-steps of the particle push |
+| `qed.max_substeps` | 1000 | upper limit of the sub-steps per particle and step |
+| `qed.seed` | 1 | random seed of the emission |
+| `qed.photon_output` | 1 | write the photon records `photons_<beam>.bin` (0: only `qed.txt`) |
+| `qed.table_dir` | — | directory for the look-up tables (`qed_bessel.lut`, `qed_rates.lut`, `qed_spectrum.lut`): loaded if they match, otherwise built and saved (rank 0). Without it the tables are built in memory (0.2 s). |
+| `qed.no_recoil`, `qed.fixed_spin` | 0, 0 | testing: emit photons without changing the momentum (fixed χ) / the spin |
+| `fields.external_E`, `fields.external_B` | 0 0 0 | constant external fields acting on the beams (m c ω_p/e) |
 
 **Function parser (HiPACE++ style).** Profiles can be given as formulas.
 - **Compilation.** Each expression is compiled once into a small stack
@@ -1099,7 +1149,18 @@ frequent small dumps and rare full dumps can be combined (§6):
   if a run is killed, the `.partN` files hold the data.
 - **`beam_<name>_NNNNNN.bin`**: int32 n, then n × (x, y, p_x, p_y, p_z, ξ, w), or n × (…, w, s_x, s_y, s_z)
   for a beam with `<beam>.spin` (readers infer 7 or 10 doubles from the file size).
-  Particles removed from the beam (w = 0) are not written.
+  Particles removed from the beam (w = 0) are not written. (The optical depth of the photon emission
+  is part of the checkpoints, not of the dumps.)
+- **Photon emission** (`<beam>.qed = 1`): **`photons_<beam>.bin`**, one record per emitted photon for the
+  whole run: char[8] "QZPHOTON", int32 version 1, int32 ncomp 13, then records of 13 float64: step, t
+  (emission time), x, y, ξ (emitter at the start of the sub-step), k_x, k_y, k_z (photon momentum in m c,
+  along the emitter's momentum; energy |k| m c²), w (weight of the emitter), ξ₁, ξ₂, ξ₃ (Stokes vector:
+  linear at 45°, circular, linear along e₁/e₂ of the emitter), χ (emitter). Sorted within each step
+  (independent of threads and ranks). **`qed.txt`**: per beam and step the macro-photons emitted in the
+  push, Σw, Σw ε_γ, Σw χ and the number of records that did not fit into the device buffer (sized from
+  the expected number of photons; normally 0, the emission itself is never affected). Readers:
+  `read_photons`, `read_qedlog` in `tools/quarz_read.py`. Restarts truncate both to the steps before the
+  checkpoint.
 - **openPMD** (`output.format = openpmd` or `both`): one file per output step,
   `openpmd/data_NNNNNN.h5` (or `.bp`, `.json`), following the
   [openPMD standard 1.1](https://github.com/openPMD/openPMD-standard).
@@ -1241,7 +1302,7 @@ All results can be reproduced with `validation/run_validation.sh`:
 
 ```bash
 cd validation
-./run_validation.sh -j 4 -c          # full suite (sections 1-25), compared with reference_full.txt
+./run_validation.sh -j 4 -c          # full suite (sections 1-26), compared with reference_full.txt
 ./run_validation.sh -q -j 4 -c       # quick regression test after code changes (~2 min on 2 cores)
 ./run_validation.sh -c 9 10          # selected sections only
 ```
@@ -1403,6 +1464,21 @@ measurable, fixed Coulomb logarithms):
 | γ = 3 → 6 witness in a wake (E_r, E_z, B_θ), a = 2 (B term large), rms spin turn 0.49 rad, vs a Python RK4 of Lorentz + T-BMT in the stored fields | rms \|s − s_ref\| 1.3·10⁻³ at Δt = 0.5, 3.1·10⁻⁴ at Δt = 0.25 (second order, as the momenta: 1.6·10⁻³ → 4·10⁻⁴) |
 | Scattering only (section 18 deck, rate × 10⁶), spin along z | s_⊥ / (κ θ_⊥) = 0.999999 / 0.999998 (first-order small-angle result) |
 | Restart; 2 ranks vs serial | bit-identical; particles and spins bit-identical (fields 5·10⁻¹⁶, beam moments in `beams.txt` 10⁻⁹ at print precision) |
+
+**Photon emission** (section 26, `qed.in`, `qed_check.py`: electrons with γ = 10⁵ along z in a constant
+B along x, no plasma fields, 2000 particles; references from scipy, independent of the C++ code; the
+statistical checks flag deviations above 4σ or χ²/dof > 2):
+
+| test | result |
+|---|---|
+| Photon number and spectrum without recoil, spin averaged, χ = 0.1, 1, 10 (27k–123k photons) | numbers +1.3σ, +0.9σ, +0.0σ of N T C₀W; spectra χ²/dof 1.7, 1.3, 0.9 (20 bins in u^{1/3}); rejection sampler at χ = 1: +0.05σ, 0.6 |
+| Spin fixed along ±B (s₂ = ±1), χ = 1 | rate ratio 0.9125 ± 0.0040 vs (W + G)/(W − G) = 0.9128; spectrum difference vs 2C₀g: χ²/dof 0.9 |
+| Mean photon Stokes vector ξ₃ vs eq. 22, s₂ = 0, +1, −1 (χ = 1) and s₂ = 0 (χ = 10); ξ₃(u) vs eq. 21 | +1.9σ, +1.0σ, −0.3σ, +0.9σ; χ²/dof ≤ 2; ξ₁ = ξ₂ = 0 exactly |
+| Radiative polarization at fixed χ = 1 from s₂ = +1, 4.2 relaxation times, vs eq. 14 (limit −0.8375) | mixed/inversion, mixed/rejection, pure/inversion, pure/rejection: max deviation 1.4, 0.8, 2.7, 1.9σ |
+| Energy loss with recoil, χ₀ = 0.1 → 0.07 | ⟨γ⟩(t) vs the ODE dγ/dt = −P(γ) within 0.3 %; photon energy = electron energy loss to 7·10⁻⁹ (print precision); inversion vs rejection +0.85σ |
+| χ₀ = 1 (strong straggling): Δt = 1 vs 0.25 (sub-cycled push) | final ⟨γ⟩ −1.0σ, γ_rms 0.8 % (8000 particles: Δt = 0.25 vs 0.0625 +0.8σ, p_max 0.1 vs 0.01 0.0σ) |
+| External field only (no QED): γ = 10⁴ in B = 10 | rotation angle vs Bt/γ 8·10⁻⁸, \|p\| exact |
+| Restart (mixed/inversion, pure/rejection); 1 vs 2 threads; 2 ranks vs serial | photon records, `qed.txt`, particles and spins bit-identical |
 
 **Trapping → beam particles** (section 21, `trap.in`, `trap_check.py`): Trojan-horse injection,
 rigid driver (n_b = 5, σ_r = 0.3) in hydrogen with 0.1 % neutral helium, laser a0 = 0.06, w0 = 0.5
@@ -1605,6 +1681,7 @@ comparison, the blowout on the stretched grid, and the SMI run.
 | `src/Beam.*` | beam loading, 2D deposit, push, diagnostics |
 | `src/Bessel.hpp` | K₁/₃, K₂/₃ and IntK₁/₃ (Airy series + rational approximations), device functions for the SF-QED rates |
 | `src/QEDRates.*` | SF-QED: χ, the (e₁, e₂, e_v) basis, the spin- and polarization-resolved nonlinear Compton coefficients, their u-integrals and the look-up tables (Bessel functions in log y, integrals and R_max in log χ) |
+| `src/QEDEmission.hpp` | photon emission during one sub-step of the beam push: samplers, recoil, spin (mixed/pure), photon polarization |
 | `src/LogTable.hpp` | multi-column look-up table on a logarithmic axis (cubic interpolation in ln x, linear or logarithmic columns), device-copyable; save/load as plain text (`*.lut`, exact round trip) |
 | `src/QEDSampling.*` | photon emission samplers: rejection (sub-stepped trials) and inversion (optical depth, inverse cumulative spectrum table) |
 | `src/Pushers.hpp` | Boris, Vay, Higuera–Cary and the two schemes of the IMP note (+ radiation reaction) |

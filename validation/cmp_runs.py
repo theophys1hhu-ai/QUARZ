@@ -1,5 +1,5 @@
 """Compare all outputs of two QUARZ runs (e.g. serial vs MPI):
-fields_*.bin, axis_*.txt, beams.txt, slices_*.txt, beam_*.bin (particles sorted).
+fields_*.bin, axis_*.txt, beams.txt, slices_*.txt, beam_*.bin (particles sorted), photons_*.bin, qed.txt.
 Prints the maximum relative difference per file type; exit code 1 if above tol.
 Differences are relative to the field scale (a field and its cos/sin mode parts share
 one scale) and, for text columns, to max(|column|, 1e-9): components that vanish by
@@ -17,7 +17,7 @@ import numpy as np
 warnings.filterwarnings("ignore", message="Input line")
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "tools"))
-from quarz_read import read_beam, read_fields  # noqa: E402
+from quarz_read import PHOTON_FIELDS, read_beam, read_fields, read_photons  # noqa: E402
 
 a_dir, b_dir = sys.argv[1], sys.argv[2]
 tol = float(sys.argv[3]) if len(sys.argv) > 3 else 1e-10
@@ -62,6 +62,10 @@ for fa in sorted(glob.glob(os.path.join(a_dir, "*"))):
                 continue
             base = k[:-2] if k.endswith(("_c", "_s")) else k
             note("fields", rel(A[k], B[k], fam[base]), name + ":" + k)
+    elif name.startswith("photons_") and name.endswith(".bin"):   # photon records (sorted in the file)
+        A, B = read_photons(fa), read_photons(fb)
+        for k in PHOTON_FIELDS:
+            note("photons", rel(A[k], B[k], floor=1e-9), name + ":" + k)
     elif name.startswith("beam_") and name.endswith(".bin"):
         A, B = read_beam(fa), read_beam(fb)
         for k in A:

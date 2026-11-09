@@ -2,7 +2,7 @@
 # Validation suite of QUARZ (results quoted in README §7).
 #
 # usage: cd validation && ./run_validation.sh [options] [sections]
-#   sections   numbers 1..25 (default: all)
+#   sections   numbers 1..26 (default: all)
 #   -q         quick mode: reduced sizes, ~2-3 min on 2 cores (regression test after code changes)
 #   -j N       run N sections in parallel (OpenMP threads are split between them)
 #   -c         compare with the stored reference (reference_full.txt / reference_quick.txt):
@@ -15,7 +15,7 @@ cd "$(dirname "$0")"
 QS=../build/quarz; QUICK=0; JOBS=1; CMP=0; UPD=0
 while getopts "qj:cx:u" o; do case $o in q) QUICK=1;; j) JOBS=$OPTARG;; c) CMP=1;; x) QS=$OPTARG;; u) UPD=1;; *) exit 2;; esac; done
 shift $((OPTIND-1))
-SECTIONS=${*:-$(seq 1 25)}
+SECTIONS=${*:-$(seq 1 26)}
 export OMP_PROC_BIND=${OMP_PROC_BIND:-false}
 NCORES=$(nproc); export OMP_NUM_THREADS=${OMP_NUM_THREADS:-$(( NCORES / JOBS > 0 ? NCORES / JOBS : 1 ))}
 MPIRUN=""; if command -v mpirun > /dev/null 2>&1; then MPIRUN="mpirun --oversubscribe -np"; [ "$(id -u)" = "0" ] && MPIRUN="mpirun --allow-run-as-root --oversubscribe -np"; fi
@@ -622,6 +622,70 @@ sec25() {
         python3 cmp_runs.py out_shot_s out_shot_p 1e-14 || true
     fi
     rm -rf out_shot*
+}
+
+sec26() {
+    echo "== 26. photon emission (nonlinear Compton, LCFA) with spin and photon polarization: electrons in a constant field B =="
+    # qed.in: gamma = 1e5 along z, B along x, no plasma fields; chi = eta gamma B (B = 13.7614, 137.614, 1376.14:
+    # chi = 0.1, 1, 10). References: qed_check.py (scipy, independent of the C++ code).
+    local N=$(q 2000 500) C="python3 qed_check.py"
+    qrun() { local d=$1; shift; printf "%s\n" "$@" > $d.args; $QS qed.in e.nparticles=$N output.dir=$d "$@" > /dev/null; }
+    echo " (a) photon number and spectrum without recoil, spin averaged (inversion sampler unless noted):"
+    qrun out_qed_c1 time.steps=50 qed.no_recoil=1
+    $C spectrum out_qed_c1 0
+    if [ "$QUICK" = 0 ]; then
+        qrun out_qed_c01 time.steps=100 qed.no_recoil=1 "fields.external_B=13.7614 0 0"
+        $C spectrum out_qed_c01 0
+        qrun out_qed_c10 time.steps=10 qed.no_recoil=1 "fields.external_B=1376.14 0 0"
+        $C spectrum out_qed_c10 0
+    fi
+    qrun out_qed_c1r time.steps=50 qed.no_recoil=1 qed.sampler=rejection
+    echo "   rejection sampler:"; $C spectrum out_qed_c1r 0
+    echo " (b) spin-resolved emission (spin fixed along +-B, no recoil): rate and spectrum difference, photon polarization:"
+    qrun out_qed_sp time.steps=50 qed.no_recoil=1 qed.fixed_spin=1 "e.spin=1 0 0"
+    qrun out_qed_sm time.steps=50 qed.no_recoil=1 qed.fixed_spin=1 "e.spin=-1 0 0"
+    $C spindiff out_qed_sp out_qed_sm
+    $C polar out_qed_c1 0
+    $C polar out_qed_sp 1
+    $C polar out_qed_sm -1
+    [ "$QUICK" = 0 ] && $C polar out_qed_c10 0
+    echo " (c) radiative polarization (Sokolov-Ternov) at fixed chi = 1, spin initially along +B, vs eq. 14:"
+    local combos="mixed:inversion pure:rejection"
+    [ "$QUICK" = 0 ] && combos="mixed:inversion mixed:rejection pure:inversion pure:rejection"
+    for c in $combos; do
+        qrun out_qed_st time.steps=100 qed.no_recoil=1 "e.spin=1 0 0" qed.photon_output=0 qed.spin_model=${c%%:*} qed.sampler=${c##*:}
+        echo "   ${c%%:*} states, ${c##*:} sampler:"; $C spin out_qed_st 1
+    done
+    echo " (d) energy loss with recoil:"
+    qrun out_qed_e time.steps=100 "fields.external_B=13.7614 0 0"
+    $C energy out_qed_e
+    if [ "$QUICK" = 0 ]; then
+        qrun out_qed_er time.steps=100 "fields.external_B=13.7614 0 0" qed.sampler=rejection
+        $C compare out_qed_e out_qed_er "chi_0 = 0.1, inversion vs rejection"
+    fi
+    qrun out_qed_d1 time.steps=20 qed.photon_output=0
+    qrun out_qed_d4 time.steps=80 time.dt=0.25 qed.photon_output=0
+    $C compare out_qed_d1 out_qed_d4 "chi_0 = 1 (strong straggling), dt = 1 vs 0.25 (sub-cycled push)"
+    echo " (e) the external field alone (no QED): rotation of the momentum, gamma = 1e4, B = 10:"
+    qrun out_qed_gy time.steps=100 e.qed=0 e.gamma=1e4 "fields.external_B=10 0 0" output.beam_every=100
+    $C gyration out_qed_gy
+    echo " (f) restart, threads, MPI (expected: photon records, qed.txt, particles and spins bit-identical):"
+    local M="qed.in time.steps=10 output.beam_every=5 e.nparticles=400"
+    for c in mixed:inversion pure:rejection; do
+        local S="qed.spin_model=${c%%:*} qed.sampler=${c##*:}"
+        $QS $M "e.spin=0.6 0 0.8" $S checkpoint.every=4 checkpoint.keep=0 checkpoint.dir=out_qed_chk output.dir=out_qed_A > /dev/null
+        $QS $M "e.spin=0.6 0 0.8" $S restart.from=out_qed_chk/chk_000004 output.dir=out_qed_B > /dev/null
+        echo "   restart (${c%%:*} states, ${c##*:} sampler):"; $C same out_qed_A out_qed_B 4
+        rm -rf out_qed_chk out_qed_A out_qed_B
+    done
+    OMP_NUM_THREADS=1 $QS $M "e.spin=0.6 0 0.8" output.dir=out_qed_1 > /dev/null
+    OMP_NUM_THREADS=2 $QS $M "e.spin=0.6 0 0.8" output.dir=out_qed_2 > /dev/null
+    echo "   1 vs 2 threads:"; $C same out_qed_1 out_qed_2
+    if [ -n "$MPIRUN" ]; then
+        OMP_NUM_THREADS=1 $MPIRUN 2 $QS $M "e.spin=0.6 0 0.8" output.dir=out_qed_P > /dev/null
+        echo "   2 ranks vs serial:"; python3 cmp_runs.py out_qed_1 out_qed_P 1e-14 || true
+    fi
+    rm -rf out_qed_* 
 }
 
 MODE=$(q full quick); TMP=$(mktemp -d); T0=$(date +%s)

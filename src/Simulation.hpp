@@ -137,6 +137,15 @@ private:
     unsigned long long seed_ = 1;
     std::ofstream beamlog_;
     std::ofstream spinlog_;   // spin.txt: mean spin (polarization) of the beams with <beam>.spin
+    // ---- photon emission (SimulationIO.cpp): records photons_<beam>.bin, sums per step qed.txt
+    bool any_qed_ = false;
+    bool photon_output_ = true;              // qed.photon_output
+    std::ofstream qedlog_;
+    std::vector<std::FILE*> photon_files_;   // per beam (nullptr: no emission)
+    void setup_qed();                        // tables (shared by the beams), output files
+    void write_photons(int n, size_t b);     // after the push of beam b in step n
+    void merge_photon_outputs();             // MPI: rank parts -> photons_<beam>.bin, qed.txt
+    void truncate_photons(int step);         // restart: drop records of steps >= step
     long lost_total_ = 0;
     std::vector<int> trap_beam_;   // per plasma species: index of the beam its trapped particles join (-1: none)
     long trapped_step_ = 0;        // particles converted in this step (this rank)

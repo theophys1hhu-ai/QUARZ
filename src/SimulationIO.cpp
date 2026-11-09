@@ -12,6 +12,7 @@
 // bit-identically; with a different number, the particles and envelope slices are
 // redistributed (the result then differs at round-off level, as for any change of P).
 #include "Simulation.hpp"
+#include "QEDSampling.hpp"
 
 #include "Beam.hpp"
 #include "Config.hpp"
@@ -500,7 +501,7 @@ void Simulation::read_checkpoint(const std::string& dir) {
 
 void Simulation::truncate_logs(int step) {
     // keep comments and the lines of steps < step; column of the step: beams.txt 1, others 0
-    const std::pair<const char*, int> logs[] = {{"beams.txt", 1}, {"laser.txt", 0}, {"ionization.txt", 0}, {"timestep.txt", 0}, {"spin.txt", 1}};
+    const std::pair<const char*, int> logs[] = {{"beams.txt", 1}, {"laser.txt", 0}, {"ionization.txt", 0}, {"timestep.txt", 0}, {"spin.txt", 1}, {"qed.txt", 1}};
     for (const auto& l : logs) {
         const std::string fn = outdir_ + "/" + l.first;
         std::ifstream in(fn);
@@ -518,6 +519,7 @@ void Simulation::truncate_logs(int step) {
         std::ofstream out(fn, std::ios::trunc);
         for (const auto& k : keep) out << k << "\n";
     }
+    truncate_photons(step);
 }
 
 } // namespace quarz
@@ -706,6 +708,209 @@ void Simulation::boundary_state(double t) {
     }
     bbuf_.resize(a.size());
     for (size_t k = 0; k < a.size(); ++k) bbuf_[k] = ma[k] ? a[k] + w * (b[k] - a[k]) : (w < 0.5 ? a[k] : b[k]);
+}
+
+} // namespace quarz
+
+namespace quarz {
+
+// ============================================================================ photon emission (QED)
+// photons_<beam>.bin: header "QZPHOTON", int32 version 1, int32 ncomp 13; then records of 13 float64:
+//   step, t (emission), x, y, xi (emitter at the start of the sub-step), k_x, k_y, k_z (photon momentum,
+//   m c), w (weight of the emitter), xi_1, xi_2, xi_3 (Stokes vector), chi (emitter).
+// Records are sorted within each step (lexicographically), so the file does not depend on threads or ranks.
+// qed.txt: per beam and step the sums over the photons emitted in the step (and the records lost).
+namespace {
+constexpr int PHOTON_NCOMP = 1 + Beam::PHOTON_RECORD;
+const char PHOTON_MAGIC[8] = {'Q', 'Z', 'P', 'H', 'O', 'T', 'O', 'N'};
+
+void write_photon_header(std::FILE* f) {
+    const int32_t hdr[2] = {1, PHOTON_NCOMP};
+    std::fwrite(PHOTON_MAGIC, 1, 8, f);
+    std::fwrite(hdr, sizeof(int32_t), 2, f);
+}
+// records (ncomp doubles each) of a photon file or rank part (header optional)
+std::vector<double> read_photon_records(const std::string& fn, bool header) {
+    std::vector<double> v;
+    std::FILE* f = std::fopen(fn.c_str(), "rb");
+    if (!f) return v;
+    if (header) {
+        char m[8];
+        int32_t hdr[2];
+        if (std::fread(m, 1, 8, f) != 8 || std::memcmp(m, PHOTON_MAGIC, 8) != 0 || std::fread(hdr, sizeof(int32_t), 2, f) != 2 ||
+            hdr[1] != PHOTON_NCOMP) {
+            std::fclose(f);
+            throw std::runtime_error(fn + ": not a QUARZ photon file of this version");
+        }
+    }
+    double buf[PHOTON_NCOMP];
+    while (std::fread(buf, sizeof(double), PHOTON_NCOMP, f) == PHOTON_NCOMP) v.insert(v.end(), buf, buf + PHOTON_NCOMP);
+    std::fclose(f);
+    return v;
+}
+// sort records of nc doubles lexicographically (deterministic order)
+void sort_records(std::vector<double>& v, int nc) {
+    const size_t n = v.size() / nc;
+    std::vector<size_t> idx(n);
+    for (size_t i = 0; i < n; ++i) idx[i] = i;
+    std::sort(idx.begin(), idx.end(), [&](size_t a, size_t b) {
+        return std::lexicographical_compare(v.begin() + a * nc, v.begin() + a * nc + nc, v.begin() + b * nc, v.begin() + b * nc + nc);
+    });
+    std::vector<double> s(v.size());
+    for (size_t i = 0; i < n; ++i) std::copy(v.begin() + idx[i] * nc, v.begin() + idx[i] * nc + nc, s.begin() + i * nc);
+    v.swap(s);
+}
+const char* QED_LOG_HEADER =
+    "# beam step t photons sum_w sum_w_energy sum_w_chi lost_records   (photons emitted in the push of the step:"
+    " macro-photons, sum of weights, of weight x photon energy (m c^2), of weight x chi of the emitter;"
+    " records lost to a full buffer)\n";
+} // namespace
+
+void Simulation::setup_qed() {
+    photon_files_.assign(beams_.size(), nullptr);
+    for (const auto& b : beams_) any_qed_ = any_qed_ || b->qed();
+    if (!any_qed_) return;
+    // look-up tables: built once and shared by all beams; with qed.table_dir rank 0 loads them from there
+    // (or builds and saves them) and the other ranks load them afterwards
+    const std::string dir = cfg_.get_string("qed.table_dir", "");
+    auto path = [&](const char* f) { return dir.empty() ? std::string() : dir + "/" + f; };
+    if (!dir.empty() && comm_.root()) std::filesystem::create_directories(dir);
+    qed::BesselTable bt;
+    qed::RateTable rt;
+    qed::SpectrumTable st;
+    std::string status[3];
+    for (int pass = 0; pass < 2; ++pass) {
+        if ((pass == 0) == comm_.root()) {
+            const bool write = comm_.root();
+            bt = qed::bessel_table(path("qed_bessel.lut"), 1e-6, qed::Y_MAX, 32, write, &status[0]);
+            rt = qed::rate_table(path("qed_rates.lut"), 1e-5, 1e4, 32, write, &status[1]);
+            st = qed::spectrum_table(path("qed_spectrum.lut"), qed::SpectrumTableParams(), write, &status[2]);
+        }
+        if (!dir.empty()) comm_.barrier();
+    }
+    for (auto& b : beams_)
+        if (b->qed()) b->set_qed_tables(bt, rt, st);
+    if (comm_.root())
+        std::cout << "QED tables" << (dir.empty() ? "" : " (" + dir + ")") << ": Bessel " << status[0] << ", rates " << status[1]
+                  << ", spectrum " << status[2] << "\n";
+    // output files
+    const int P = comm_.size(), r = comm_.rank();
+    const bool fresh = !restarted_ || !std::filesystem::exists(outdir_ + "/qed.txt");
+    if (P == 1) qedlog_.open(outdir_ + "/qed.txt", std::ios::out | (restarted_ ? std::ios::app : std::ios::trunc));
+    else qedlog_.open(outdir_ + "/qed.part" + std::to_string(r));
+    if (P == 1 && fresh) qedlog_ << QED_LOG_HEADER;
+    photon_output_ = cfg_.get_bool("qed.photon_output", true);
+    for (size_t b = 0; b < beams_.size(); ++b) {
+        if (!beams_[b]->qed() || !photon_output_) continue;
+        const std::string fn = outdir_ + "/photons_" + beams_[b]->name() + ".bin";
+        if (P == 1) {
+            const bool exists = restarted_ && std::filesystem::exists(fn);
+            photon_files_[b] = std::fopen(fn.c_str(), exists ? "ab" : "wb");
+            if (photon_files_[b] && !exists) write_photon_header(photon_files_[b]);
+        } else {
+            photon_files_[b] = std::fopen((fn + ".part" + std::to_string(r)).c_str(), "wb");
+        }
+        if (!photon_files_[b]) throw std::runtime_error("cannot write " + fn);
+    }
+}
+
+void Simulation::write_photons(int n, size_t b) {
+    std::vector<double> rec;
+    long lost = 0;
+    beams_[b]->take_photons(rec, lost);
+    constexpr int R = Beam::PHOTON_RECORD;
+    sort_records(rec, R);
+    const size_t np = rec.size() / R;
+    std::vector<double> out(np * PHOTON_NCOMP);
+    double sw = 0, swe = 0, swchi = 0;
+    for (size_t i = 0; i < np; ++i) {
+        const double* q = &rec[i * R];
+        double* o = &out[i * PHOTON_NCOMP];
+        o[0] = n;
+        o[1] = t_ + q[0];
+        std::copy(q + 1, q + R, o + 2);
+        const double w = q[7], e = std::sqrt(q[4] * q[4] + q[5] * q[5] + q[6] * q[6]);
+        sw += w;
+        swe += w * e;
+        swchi += w * q[11];
+    }
+    if (photon_files_[b]) {
+        if (!out.empty()) std::fwrite(out.data(), sizeof(double), out.size(), photon_files_[b]);
+        std::fflush(photon_files_[b]);
+    }
+    qedlog_ << beams_[b]->name() << " " << n << " " << std::setprecision(17) << t_ << " " << np << " " << sw << " " << swe
+            << " " << swchi << " " << lost << "\n";
+    qedlog_.flush();
+    if (lost > 0)
+        std::cout << "rank " << comm_.rank() << " step " << n << ": " << lost << " photon records of beam " << beams_[b]->name()
+                  << " lost (buffer full; it has grown for the next steps)" << std::endl;
+}
+
+void Simulation::merge_photon_outputs() {
+    namespace fs = std::filesystem;
+    const int P = comm_.size();
+    for (const auto& bp : beams_) {
+        if (!bp->qed() || !photon_output_) continue;
+        const std::string fn = outdir_ + "/photons_" + bp->name() + ".bin";
+        std::vector<double> all;
+        for (int r = 0; r < P; ++r) {
+            const std::string part = fn + ".part" + std::to_string(r);
+            const std::vector<double> v = read_photon_records(part, false);
+            all.insert(all.end(), v.begin(), v.end());
+            fs::remove(part);
+        }
+        sort_records(all, PHOTON_NCOMP);   // by step, then lexicographically: the order of a serial run
+        const bool exists = restarted_ && fs::exists(fn);
+        std::FILE* f = std::fopen(fn.c_str(), exists ? "ab" : "wb");
+        if (!f) throw std::runtime_error("cannot write " + fn);
+        if (!exists) write_photon_header(f);
+        std::fwrite(all.data(), sizeof(double), all.size(), f);
+        std::fclose(f);
+    }
+    // qed.txt: sum the rank parts of every (beam, step)
+    std::map<std::pair<int, std::string>, std::pair<double, std::array<double, 5>>> acc;
+    for (int r = 0; r < P; ++r) {
+        const std::string part = outdir_ + "/qed.part" + std::to_string(r);
+        std::ifstream in(part);
+        std::string name;
+        int n;
+        double t;
+        std::array<double, 5> S;
+        while (in >> name >> n >> t >> S[0] >> S[1] >> S[2] >> S[3] >> S[4]) {
+            auto key = std::make_pair(n, name);
+            auto it = acc.find(key);
+            if (it == acc.end()) acc[key] = {t, S};
+            else for (int c = 0; c < 5; ++c) it->second.second[c] += S[c];
+        }
+        in.close();
+        fs::remove(part);
+    }
+    const bool hdr = !restarted_ || !fs::exists(outdir_ + "/qed.txt");
+    std::ofstream o(outdir_ + "/qed.txt", restarted_ ? std::ios::app : std::ios::trunc);
+    if (hdr) o << QED_LOG_HEADER;
+    for (const auto& e : acc) {
+        const auto& S = e.second.second;
+        o << e.first.second << " " << e.first.first << " " << std::setprecision(17) << e.second.first << " "
+          << static_cast<long>(S[0]) << " " << S[1] << " " << S[2] << " " << S[3] << " " << static_cast<long>(S[4]) << "\n";
+    }
+}
+
+void Simulation::truncate_photons(int step) {
+    namespace fs = std::filesystem;
+    if (!fs::exists(outdir_)) return;
+    for (const auto& e : fs::directory_iterator(outdir_)) {
+        const std::string f = e.path().filename().string();
+        if (f.rfind("photons_", 0) != 0 || f.size() < 4 || f.substr(f.size() - 4) != ".bin") continue;
+        std::vector<double> v = read_photon_records(e.path().string(), true);
+        std::vector<double> keep;
+        for (size_t i = 0; i + PHOTON_NCOMP <= v.size(); i += PHOTON_NCOMP)
+            if (v[i] < step) keep.insert(keep.end(), v.begin() + i, v.begin() + i + PHOTON_NCOMP);
+        std::FILE* fp = std::fopen(e.path().string().c_str(), "wb");
+        if (!fp) continue;
+        write_photon_header(fp);
+        std::fwrite(keep.data(), sizeof(double), keep.size(), fp);
+        std::fclose(fp);
+    }
 }
 
 } // namespace quarz

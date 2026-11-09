@@ -6,6 +6,7 @@
 
 #include "FieldStore.hpp"
 #include "Parser.hpp"
+#include "QEDEmission.hpp"
 #include "RadialGrid.hpp"
 
 #include <array>
@@ -106,11 +107,25 @@ public:
     bool rigid() const { return rigid_; }
     bool analytic() const { return analytic_; }
     int  num_particles() const { return Np_; }
-    int  ncomp() const { return nc_; }              // packed doubles per particle (7, 10 with spin)
+    int  ncomp() const { return nc_; }              // packed doubles per particle (7, +3 spin, +1 optical depth)
+    int  dump_ncomp() const { return spin_ ? 10 : 7; }   // doubles per particle in the dumps (dump())
     bool spin() const { return spin_; }
     Real anomalous() const { return anom_; }
     std::array<double, 4> spin_sums() const;        // sum w, sum w s_x, s_y, s_z (live particles)
     long num_global() const { return np_global_; }   // particles of the whole beam at the start
+
+    // ---- photon emission (nonlinear Compton scattering), <beam>.qed = 1
+    bool qed() const { return qed_on_; }
+    std::string qed_description() const;
+    // the shared look-up tables (built once by the Simulation); must be called before the first push
+    void set_qed_tables(const qed::BesselTable& b, const qed::RateTable& r, const qed::SpectrumTable& s);
+    // photon records of the pushes since the last call, PHOTON_RECORD doubles each:
+    //   t (from the start of the step), x, y, xi (emitter at the start of the sub-step), k_x, k_y, k_z (m c),
+    //   w (weight of the emitter), xi_1, xi_2, xi_3 (Stokes), chi (emitter)
+    // and the number of records that did not fit into the device buffer (the buffer grows after an
+    // overflow; the emission itself is never affected)
+    static constexpr int PHOTON_RECORD = 12;
+    void take_photons(std::vector<double>& records, long& lost);
 
 private:
     void init_gaussian(const Config& cfg);
@@ -151,6 +166,8 @@ private:
     Parser dens_;
     BeamPusher pusher_ = BeamPusher::Vay;
     Scatter sc_;   // <beam>.scattering
+    bool ext_on_ = false;           // constant external fields (fields.external_E / external_B)
+    Real ext_E_[3] = {0, 0, 0}, ext_B_[3] = {0, 0, 0};
     Real rr_ = 0;   // (2/3) r_e k_p q^2/m, 0 = no radiation reaction
     int Np_ = 0;
     View1D x_, y_, px_, py_, pz_, xi_, w_;
@@ -158,7 +175,22 @@ private:
     bool spin_ = false;
     Real anom_ = 0;                 // anomalous magnetic moment a = (g - 2)/2
     double s0_[3] = {0, 0, 1};      // initial spin direction
-    int nc_ = 7;                    // doubles per packed particle: 7, or 10 with spin
+    int nc_ = 7;                    // doubles per packed particle: 7, +3 with spin, +1 with the optical depth
+    // photon emission
+    bool qed_on_ = false;
+    bool qed_tables_ = false;
+    qed::Emission qed_;             // parameters and tables (device-copyable)
+    uint64_t qed_seed_ = 1;
+    View1D tau_;                    // optical depth (inversion sampler)
+    bool has_tau() const { return qed_on_ && qed_.sampler == qed::INVERSION; }
+    Kokkos::View<Real**, Kokkos::LayoutRight, MemSpace> ph_rec_;   // device buffer of photon records
+    Kokkos::View<int, MemSpace> ph_count_;
+    Kokkos::View<int*, MemSpace> nsub_;   // sub-steps of every particle in the current push
+    int ph_cap_ = 0;
+    std::vector<double> ph_host_;   // records collected since the last take_photons()
+    long ph_lost_ = 0;
+    // 7 doubles per particle (x y px py pz xi w) -> the full nc_ (initial spin, initial optical depth)
+    std::vector<double> expand7(const std::vector<double>& p7) const;
     std::vector<View1D*> comps();
     std::vector<const View1D*> comps() const;
 };
