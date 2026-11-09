@@ -1,5 +1,5 @@
 // Unit test of src/Bessel.hpp: K_{1/3}, K_{2/3} and IntK_{1/3} = int_x^inf K_{1/3}.
-//  1. 40-digit references (mpmath 1.4, besselk and quad) at 24 points 1e-8 ... 700
+//  1. 40-digit references (mpmath 1.4: tests/qed_reference.py bessel) at 24 points 1e-8 ... 700
 //  2. series / rational approximation switch points: continuity
 //  3. differential identities on a dense grid (independent of any reference values):
 //       K_{1/3}' = -K_{2/3} - K_{1/3}/(3x),  K_{2/3}' = -K_{1/3} - 2 K_{2/3}/(3x),  IntK_{1/3}' = -K_{1/3}

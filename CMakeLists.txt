@@ -57,7 +57,8 @@ add_library(quarz_core
   src/Parallel.cpp
   src/OpenPMDWriter.cpp
   src/Laser.cpp
-  src/Ionization.cpp)
+  src/Ionization.cpp
+  src/QEDRates.cpp)
 target_include_directories(quarz_core PUBLIC src)
 target_compile_definitions(quarz_core PUBLIC QUARZ_VERSION="${PROJECT_VERSION}")
 target_link_libraries(quarz_core PUBLIC Kokkos::kokkos)
@@ -140,4 +141,7 @@ if(QUARZ_BUILD_TESTS)
   add_executable(test_bessel tests/test_bessel.cpp)
   target_link_libraries(test_bessel PRIVATE quarz_core)
   add_test(NAME bessel COMMAND test_bessel)
+  add_executable(test_qed_rates tests/test_qed_rates.cpp)
+  target_link_libraries(test_qed_rates PRIVATE quarz_core)
+  add_test(NAME qed_rates COMMAND test_qed_rates)
 endif()

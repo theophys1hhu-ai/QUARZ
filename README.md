@@ -1265,6 +1265,7 @@ A planted bug (π changed by 0.3 %) is caught by the quick mode in 4 of 6 sectio
 |---|---|
 | Unit: pushers (`test_pushers`) | Identities: `imp` = HC to 5·10⁻¹⁴ and `imp_rr`(ν=0) = Vay exactly, over 10⁶ random states. Force-free γ = 2·10⁴ particle: Vay/HC/IMP exact, Boris drifts. Radiation-reaction energy loss equals ∫ν u·v dt to 0.05 %. |
 | Unit: Bessel functions K₁/₃, K₂/₃, IntK₁/₃ (`test_bessel`, for the SF-QED rates) | vs 40-digit references at x = 10⁻⁸ … 700: K 1.6·10⁻¹³, IntK 2.3·10⁻¹² (scaled e^x K to x = 700: 3.3·10⁻¹²); jumps at the series/rational switch points 3·10⁻¹³; identities K₁/₃′ = −K₂/₃ − K₁/₃/3x, K₂/₃′ = −K₁/₃ − 2K₂/₃/3x, IntK′ = −K₁/₃ to 10⁻⁹ (finite differences); small- and large-x limits |
+| Unit: nonlinear Compton rates (`test_qed_rates`; eq. 4 of the QED module: w, g, p_f, p_ξ, χ, basis) | coefficients vs mpmath (`tests/qed_reference.py`) at 10 points u = 0.001 … 0.999, χ = 0.1 … 1000: 2·10⁻¹¹; u-integrals W, G, Ξ, K, ∫uw, ∫ug, Gaunt factor g(χ) and equilibrium polarization at χ = 10⁻³ … 100: ≤ 3·10⁻¹⁴; small-χ limits W → 5πχ/2, g → 1, S∞ → −8√3/15; all resolved probabilities ≥ 0 for 10⁶ random states (\|S_f\|, \|ξ\| ≤ 1); sum over final states; electron/positron basis |
 | Unit: tridiagonal (M = 16 … 9001) | Thomas, PCR and partition all at round-off level (≤ 7·10⁻¹⁶) |
 | Unit: L₀, L₁ (flux and Dirichlet wall), L₂ with χ, manufactured solutions | second order: measured 1.9–2.0 on uniform and 1.98–2.0 on stretched grids (h₀ = 0.01 → 0.00125, ratio ≤ 1.05) |
 | Cartesian particle rewrite, `modes = 0`, vs the earlier ring version | linear wake and blowout fields agree to 10⁻¹⁰–10⁻¹³; beam energies identical |
@@ -1601,6 +1602,7 @@ comparison, the blowout on the stretched grid, and the SMI run.
 | `src/Ionization.*` | element tables, ADK and cycle-averaged laser rates, Bethe impact cross-section; the ionization kernel is in `PlasmaSpecies.cpp` |
 | `src/Beam.*` | beam loading, 2D deposit, push, diagnostics |
 | `src/Bessel.hpp` | K₁/₃, K₂/₃ and IntK₁/₃ (Airy series + rational approximations), device functions for the SF-QED rates |
+| `src/QEDRates.*` | SF-QED: χ, the (e₁, e₂, e_v) basis, the spin- and polarization-resolved nonlinear Compton coefficients and their u-integrals |
 | `src/Pushers.hpp` | Boris, Vay, Higuera–Cary and the two schemes of the IMP note (+ radiation reaction) |
 | `src/Simulation.*` | slice sweep, pipelined time loop, MPI messages, output |
 | `src/Parallel.*` | thin MPI layer (point-to-point messages, offset file writes; serial stub without MPI) |
