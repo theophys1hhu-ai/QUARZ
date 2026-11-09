@@ -49,5 +49,45 @@ double polarization_limit(double chi) {
     return -A / B;
 }
 
+double max_rate_r(double chi) {
+    if (!(chi > 0)) return 0.0;
+    auto f = [&](double r) { return rate_r(r, chi, -1.0); };   // g < 0: s2 = -1 gives w + |g|
+    const int N = 400;
+    int kbest = 0;
+    double best = f(0.0);
+    for (int k = 1; k <= N; ++k) {
+        const double v = f(static_cast<double>(k) / N);
+        if (v > best) { best = v; kbest = k; }
+    }
+    double a = std::max(0, kbest - 1) / static_cast<double>(N), b = std::min(N, kbest + 1) / static_cast<double>(N);
+    const double gr = 0.5 * (std::sqrt(5.0) - 1);
+    double c = b - gr * (b - a), d = a + gr * (b - a), fc = f(c), fd = f(d);
+    for (int it = 0; it < 80 && b - a > 1e-12; ++it) {
+        if (fc > fd) { b = d; d = c; fd = fc; c = b - gr * (b - a); fc = f(c); }
+        else { a = c; c = d; fc = fd; d = a + gr * (b - a); fd = f(d); }
+    }
+    return std::max(best, std::max(fc, fd));
+}
+
+BesselTable make_bessel_table(double y_min, double y_max, double ppd) {
+    BesselTable T;
+    T.t = LogTable::build(y_min, y_max, ppd, 3, [](double y, double* o) {
+        o[0] = bessel::k13e(y); o[1] = bessel::k23e(y); o[2] = bessel::ik13e(y);
+    }, {LogTable::Log, LogTable::Log, LogTable::Log}, "qed.bessel_table");
+    T.y_min = y_min;
+    T.y_max = y_max;
+    return T;
+}
+
+RateTable make_rate_table(double chi_min, double chi_max, double ppd) {
+    RateTable T;
+    T.t = LogTable::build(chi_min, chi_max, ppd, 7, [](double chi, double* o) {
+        const Integrals I = integrals(chi);
+        o[0] = I.W; o[1] = I.G; o[2] = I.Xi; o[3] = I.K; o[4] = I.Wu; o[5] = I.Gu;
+        o[6] = RMAX_SAFETY * max_rate_r(chi);
+    }, std::vector<int>(7, LogTable::Log), "qed.rate_table");
+    return T;
+}
+
 } // namespace qed
 } // namespace quarz

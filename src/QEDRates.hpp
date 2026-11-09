@@ -29,6 +29,7 @@
 #pragma once
 
 #include "Bessel.hpp"
+#include "LogTable.hpp"
 #include "Pushers.hpp"   // V3
 
 #include <cmath>
@@ -41,7 +42,8 @@ using push::V3;
 
 constexpr double ALPHA = 7.2973525693e-3;              // fine-structure constant (CODATA 2018)
 constexpr double LAMBDA_C_CM = 3.8615926796e-11;        // reduced Compton wavelength hbar / (m_e c), cm
-constexpr double Y_MAX = 700;                           // y beyond which all K(y) are set to 0 (e^-700)
+constexpr double Y_MAX = 700;
+constexpr double RMAX_SAFETY = 1.01;                    // margin of the tabulated bound Rmax (RateTable)                           // y beyond which all K(y) are set to 0 (e^-700)
 
 // eta = hbar omega_p / (m_e c^2) = lambda_C k_p for the plasma density n0 (cm^-3)
 inline double eta_from_n0_cm3(double n0) {
@@ -102,19 +104,10 @@ struct Coef {
     Real x1 = 0, x2 = 0, x3 = 0, x3s = 0;
 };
 
-// Valid for 0 < u < 1, chi > 0; u <= 0 gives the (divergent) u -> 0 limits, u >= 1 or chi <= 0 zero.
-KOKKOS_INLINE_FUNCTION Coef coefficients(Real u, Real chi) {
+// The coefficients from the Bessel functions K13 = K_{1/3}(y), K23 = K_{2/3}(y), IK13 = IntK_{1/3}(y)
+// at y = y_arg(u, chi), 0 < u < 1
+KOKKOS_INLINE_FUNCTION Coef coefficients_from_K(Real u, Real K13, Real K23, Real IK13) {
     Coef c;
-    if (!(chi > Real(0)) || u >= Real(1)) return c;
-    if (u <= Real(0)) {   // y = 0: K_{2/3} = inf, all terms with a factor u vanish
-        const Real inf = Kokkos::Experimental::infinity<Real>::value;
-        c.w = inf; c.fs = inf; c.x3 = inf;
-        return c;
-    }
-    const Real y = y_arg(u, chi);
-    if (y >= Real(Y_MAX)) return c;
-    Real K13, K23, IK13;
-    bessel::synchrotron_functions(y, K13, K23, IK13);
     const Real omu = Real(1) - u, r = u / omu;   // u / (1 - u)
     c.w = (omu + Real(1) / omu) * K23 - IK13;    // (u^2 - 2u + 2)/(1-u) = (1-u) + 1/(1-u)
     c.g = -u * K13;
@@ -126,6 +119,30 @@ KOKKOS_INLINE_FUNCTION Coef coefficients(Real u, Real chi) {
     c.x3 = K23;
     c.x3s = -r * K13;
     return c;
+}
+
+namespace detail {
+// the cases without Bessel functions: true if c is final, otherwise y is set
+KOKKOS_INLINE_FUNCTION bool coefficients_edge(Real u, Real chi, Real& y, Coef& c) {
+    if (!(chi > Real(0)) || u >= Real(1)) return true;
+    if (u <= Real(0)) {   // y = 0: K_{2/3} = inf, all terms with a factor u vanish
+        const Real inf = Kokkos::Experimental::infinity<Real>::value;
+        c.w = inf; c.fs = inf; c.x3 = inf;
+        return true;
+    }
+    y = y_arg(u, chi);
+    return y >= Real(Y_MAX);
+}
+} // namespace detail
+
+// Valid for 0 < u < 1, chi > 0; u <= 0 gives the (divergent) u -> 0 limits, u >= 1 or chi <= 0 zero.
+KOKKOS_INLINE_FUNCTION Coef coefficients(Real u, Real chi) {
+    Coef c;
+    Real y = 0;
+    if (detail::coefficients_edge(u, chi, y, c)) return c;
+    Real K13, K23, IK13;
+    bessel::synchrotron_functions(y, K13, K23, IK13);
+    return coefficients_from_K(u, K13, K23, IK13);
 }
 
 // spin-averaged w_rad(u, chi) and the e2 component of g_rad(u, chi)
@@ -166,6 +183,63 @@ KOKKOS_INLINE_FUNCTION Real rate_r(Real r, Real chi, Real s2) {
     return Real(3) * r * r * (c.w + c.g * s2);
 }
 
+// ---- look-up tables (logarithmic axes, LogTable.hpp)
+
+// K_{1/3}, K_{2/3}, IntK_{1/3} on log y in [y_min, y_max]; stored as ln(e^y K), which is smooth in ln y
+// over the whole range (power law ~ y^{-nu} for small y, ~ y^{-1/2} for large y). Outside the range the
+// direct functions of Bessel.hpp are used. Accuracy: tests/test_qed_tables.cpp.
+struct BesselTable {
+    LogTable t;
+    Real y_min = 0, y_max = 0;
+    KOKKOS_INLINE_FUNCTION void operator()(Real y, Real& K13, Real& K23, Real& IK13) const {
+        if (y >= y_min && y <= y_max) {
+            Real F[3];
+            t.eval_raw(y, F);
+            K13 = Kokkos::exp(F[0] - y);
+            K23 = Kokkos::exp(F[1] - y);
+            IK13 = Kokkos::exp(F[2] - y);
+        } else {
+            bessel::synchrotron_functions(y, K13, K23, IK13);
+        }
+    }
+};
+BesselTable make_bessel_table(double y_min = 1e-6, double y_max = Y_MAX, double points_per_decade = 32);
+
+// coefficients with the Bessel functions from the table
+KOKKOS_INLINE_FUNCTION Coef coefficients(Real u, Real chi, const BesselTable& T) {
+    Coef c;
+    Real y = 0;
+    if (detail::coefficients_edge(u, chi, y, c)) return c;
+    Real K13, K23, IK13;
+    T(y, K13, K23, IK13);
+    return coefficients_from_K(u, K13, K23, IK13);
+}
+
+// u-integrals of Integrals (below) and an upper bound Rmax of the sampling density over r and the spin,
+// max_r 3 r^2 (w + |g|) <= Rmax <= 1.02 max_r 3 r^2 (w + |g|)  (so that P <= C0 dt Rmax per step).
+// The maximum sits at r = 0 (3 Gamma(2/3) (3 chi)^{2/3}) for chi < ~25 and near u -> 1 above, so it has
+// a kink at chi ~ 25 that the cubic interpolation cannot follow (0.4 %): the table stores
+// RMAX_SAFETY max_r(...) and the evaluation takes the maximum with the exact r = 0 value.
+struct RateValues {
+    Real W = 0, G = 0, Xi = 0, K = 0, Wu = 0, Gu = 0, Rmax = 0;
+};
+// on log chi in [chi_min, chi_max], all columns logarithmic (power laws: W ~ chi, G ~ chi^2, ... for
+// small chi). Outside the range: power-law extrapolation of the end interval (approximate).
+struct RateTable {
+    LogTable t;
+    KOKKOS_INLINE_FUNCTION RateValues operator()(Real chi) const {
+        RateValues r;
+        if (!(chi > Real(0))) return r;
+        Real v[7];
+        t.eval(chi, v);
+        r.W = v[0]; r.G = v[1]; r.Xi = v[2]; r.K = v[3]; r.Wu = v[4]; r.Gu = v[5];
+        const Real R0 = Real(RMAX_SAFETY) * rate_r(Real(0), chi, Real(0));
+        r.Rmax = v[6] > R0 ? v[6] : R0;
+        return r;
+    }
+};
+RateTable make_rate_table(double chi_min = 1e-5, double chi_max = 1e4, double points_per_decade = 32);
+
 // ---- u-integrals (host; quadrature). All per C0, i.e. the rates are C0 times these.
 struct Integrals {
     double W = 0;    // int w du                     total emission rate (spin-averaged)
@@ -182,6 +256,9 @@ Integrals integrals(double chi);
 double gaunt(double chi);
 // equilibrium polarization along e2 in a constant field (eq. 14): -(K - G)/(Xi - W) -> -8 sqrt(3)/15
 double polarization_limit(double chi);
+// max over r in [0, 1] of the sampling density for the least favourable spin, 3 r^2 (w + |g|)
+// (grid of 400 points and golden-section refinement, relative accuracy ~1e-10)
+double max_rate_r(double chi);
 
 // adaptive Gauss-Kronrod (7-15) quadrature of f over [a, b] to relative accuracy rtol (host):
 // the interval with the largest error estimate |K15 - G7| is bisected until the sum of the
