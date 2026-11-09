@@ -220,11 +220,20 @@ public:
             if (sign_(c) != Real(0)) out[c] = sign_(c) * Kokkos::exp(out[c]);
     }
     // one column at x
-    KOKKOS_INLINE_FUNCTION Real eval(int c, Real x) const {
-        int j;
-        Real w[4];
-        stencil(Kokkos::log(x), j, w);
-        const Real v = w[0] * F_(j, c) + w[1] * F_(j + 1, c) + w[2] * F_(j + 2, c) + w[3] * F_(j + 3, c);
+    KOKKOS_INLINE_FUNCTION Real eval(int c, Real x) const { return eval(stencil_at(x), c); }
+
+    // For many columns at the same x: compute the interpolation stencil once, then evaluate columns.
+    struct Stencil {
+        int j;        // first of the 4 nodes
+        Real w[4];    // their weights
+    };
+    KOKKOS_INLINE_FUNCTION Stencil stencil_at(Real x) const {
+        Stencil s;
+        stencil(Kokkos::log(x), s.j, s.w);
+        return s;
+    }
+    KOKKOS_INLINE_FUNCTION Real eval(const Stencil& s, int c) const {
+        const Real v = s.w[0] * F_(s.j, c) + s.w[1] * F_(s.j + 1, c) + s.w[2] * F_(s.j + 2, c) + s.w[3] * F_(s.j + 3, c);
         return sign_(c) != Real(0) ? sign_(c) * Kokkos::exp(v) : v;
     }
 

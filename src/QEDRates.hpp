@@ -280,9 +280,9 @@ double max_rate_r(double chi);
 
 // adaptive Gauss-Kronrod (7-15) quadrature of f over [a, b] to relative accuracy rtol (host):
 // the interval with the largest error estimate |K15 - G7| is bisected until the sum of the
-// estimates is below rtol |I| (at most max_intervals intervals)
+// estimates is below max(rtol |I|, atol) (at most max_intervals intervals)
 template <class F>
-double integrate(F f, double a, double b, double rtol = 1e-13, int max_intervals = 4000) {
+double integrate(F f, double a, double b, double rtol = 1e-13, int max_intervals = 4000, double atol = 0) {
     static constexpr double xk[8] = {0.991455371120812639206854697526329, 0.949107912342758524526189684047851,
                                      0.864864423359769072789712788640926, 0.741531185599394439863864773280788,
                                      0.586087235467691130294144845693013, 0.405845151377397166906606412076961,
@@ -305,6 +305,7 @@ double integrate(F f, double a, double b, double rtol = 1e-13, int max_intervals
         }
         return Seg{lo, hi, K * h, std::abs((K - G) * h)};
     };
+    if (a == b) return 0.0;   // (and do not evaluate f at the end point)
     std::vector<Seg> segs{gk(a, b)};
     for (;;) {
         double I = 0, E = 0;
@@ -314,7 +315,7 @@ double integrate(F f, double a, double b, double rtol = 1e-13, int max_intervals
             E += segs[i].e;
             if (segs[i].e > segs[imax].e) imax = i;
         }
-        if (E <= rtol * std::abs(I) || static_cast<int>(segs.size()) >= max_intervals) return I;
+        if (E <= std::max(rtol * std::abs(I), atol) || static_cast<int>(segs.size()) >= max_intervals) return I;
         const Seg s = segs[imax];
         const double m = 0.5 * (s.a + s.b);
         segs[imax] = gk(s.a, m);

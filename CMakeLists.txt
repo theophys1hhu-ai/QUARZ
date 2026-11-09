@@ -58,7 +58,8 @@ add_library(quarz_core
   src/OpenPMDWriter.cpp
   src/Laser.cpp
   src/Ionization.cpp
-  src/QEDRates.cpp)
+  src/QEDRates.cpp
+  src/QEDSampling.cpp)
 target_include_directories(quarz_core PUBLIC src)
 target_compile_definitions(quarz_core PUBLIC QUARZ_VERSION="${PROJECT_VERSION}")
 target_link_libraries(quarz_core PUBLIC Kokkos::kokkos)
@@ -147,4 +148,7 @@ if(QUARZ_BUILD_TESTS)
   add_executable(test_qed_tables tests/test_qed_tables.cpp)
   target_link_libraries(test_qed_tables PRIVATE quarz_core)
   add_test(NAME qed_tables COMMAND test_qed_tables)
+  add_executable(test_qed_sampling tests/test_qed_sampling.cpp)
+  target_link_libraries(test_qed_sampling PRIVATE quarz_core)
+  add_test(NAME qed_sampling COMMAND test_qed_sampling)
 endif()
