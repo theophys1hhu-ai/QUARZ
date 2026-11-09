@@ -870,6 +870,7 @@ The generated grid is written to `out/grid.txt` (j, r_j, h_j, V_j).
 | `qed.max_substeps` | 1000 | upper limit of the sub-steps per particle and step |
 | `qed.seed` | 1 | random seed of the emission |
 | `qed.photon_output` | 1 | write the photon records `photons_<beam>.bin` (0: only `qed.txt`) |
+| `qed.photon_min_energy`, `<beam>.photon_min_energy` | 0 | write only the photons with an energy ≥ this (m c²); all photons are emitted and counted in `qed.txt` |
 | `qed.table_dir` | — | directory for the look-up tables (`qed_bessel.lut`, `qed_rates.lut`, `qed_spectrum.lut`): loaded if they match, otherwise built and saved (rank 0). Without it the tables are built in memory (0.2 s). |
 | `qed.model` | `stochastic` | `stochastic` (photon emission) \| `continuous` (deterministic radiation reaction with the mean power of the emission: synchrotron loss × g(χ), lepton keeps its direction, no photons, no radiative spin change) \| `classical` (the same with g = 1) |
 | `qed.no_recoil`, `qed.fixed_spin` | 0, 0 | testing: emit photons without changing the momentum (fixed χ) / the spin |
@@ -1483,6 +1484,7 @@ statistical checks flag deviations above 4σ or χ²/dof > 2):
 | Energy loss with recoil, χ₀ = 0.1 → 0.07 | ⟨γ⟩(t) vs the ODE dγ/dt = −P(γ) within 0.3 %; photon energy = electron energy loss to 7·10⁻⁹ (print precision); inversion vs rejection +0.85σ |
 | χ₀ = 1 (strong straggling): Δt = 1 vs 0.25 (sub-cycled push) | final ⟨γ⟩ −1.0σ, γ_rms 0.8 % (8000 particles: Δt = 0.25 vs 0.0625 +0.8σ, p_max 0.1 vs 0.01 0.0σ) |
 | Deterministic radiation reaction (`qed.model`) vs its ODE: continuous χ₀ = 0.1 and 1, classical χ₀ = 0.1 | 1.4·10⁻⁷, 1.3·10⁻⁵, 5·10⁻⁷ |
+| `photon_min_energy` (χ = 1, threshold 2·10⁴ mc²) | the written records are exactly those of the full run above the threshold; `qed.txt` identical |
 | External field only (no QED): γ = 10⁴ in B = 10 | rotation angle vs Bt/γ 8·10⁻⁸, \|p\| exact |
 | `momentum_push = 0`, `spin_precession = 0` in B, spin ⊥ B | momenta and spins unchanged (bit-identical) |
 | Restart (mixed/inversion, pure/rejection); 1 vs 2 threads; 2 ranks vs serial | photon records, `qed.txt`, particles and spins bit-identical |

@@ -633,6 +633,8 @@ sec26() {
     echo " (a) photon number and spectrum without recoil, spin averaged (inversion sampler unless noted):"
     qrun out_qed_c1 time.steps=50 qed.no_recoil=1
     $C spectrum out_qed_c1 0
+    qrun out_qed_c1cut time.steps=50 qed.no_recoil=1 e.photon_min_energy=20000
+    $C subset out_qed_c1 out_qed_c1cut 20000
     if [ "$QUICK" = 0 ]; then
         qrun out_qed_c01 time.steps=100 qed.no_recoil=1 "fields.external_B=13.7614 0 0"
         $C spectrum out_qed_c01 0

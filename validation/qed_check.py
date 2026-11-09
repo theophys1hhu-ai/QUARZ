@@ -11,6 +11,7 @@ usage: qed_check.py spectrum DIR S            photon number and spectrum vs C0 (
        qed_check.py energy DIR [model]        <gamma>(t) vs the ODE d gamma/dt = -P(gamma); energy balance
                                               (model continuous | classical: deterministic, g = 1 for classical)
        qed_check.py fixed DIR                 momentum_push = 0, spin_precession = 0: p and s unchanged
+       qed_check.py subset FULL CUT EMIN      photon_min_energy: written records = full run's above EMIN
        qed_check.py compare DIR_A DIR_B label final <gamma>, gamma_rms of two runs (statistics)
        qed_check.py same DIR_A DIR_B [step0]  photon records and qed.txt identical (from step0 on)
        qed_check.py gyration DIR              no QED: rotation of p in B by omega t = B t / gamma
@@ -255,6 +256,19 @@ def fixed(d):
           " (positions drift: %.2g)%s" % (int(fs[-1].split("_")[-1].split(".")[0]), dp, ds, moved, mark(dp != 0 or ds != 0)))
 
 
+def subset(dfull, dcut, emin):
+    """<beam>.photon_min_energy: the written records are those of the full run with energy >= emin;
+    qed.txt (all photons) is unchanged"""
+    pa, pb = qr.read_photons(dfull + "/photons_e.bin"), qr.read_photons(dcut + "/photons_e.bin")
+    sel = pa["energy"] >= emin
+    ok = sel.sum() == len(pb["energy"]) and all(np.array_equal(pa[k][sel], pb[k]) for k in qr.PHOTON_FIELDS)
+    la = [l for l in open(dfull + "/qed.txt") if not l.startswith("#")]
+    lb = [l for l in open(dcut + "/qed.txt") if not l.startswith("#")]
+    print("  photon_min_energy = %.3g: %d of %d records written, %s the full run's records above it; qed.txt %s%s" % (
+        emin, len(pb["energy"]), len(pa["energy"]), "identical to" if ok else "DIFFERENT from",
+        "identical" if la == lb else "DIFFERS", mark(not ok or la != lb)))
+
+
 def gyration(d):
     p = deck(d)
     import glob
@@ -278,6 +292,7 @@ if __name__ == "__main__":
     elif c == "polar": polar(a[0], float(a[1]))
     elif c == "energy": energy(a[0], a[1] if len(a) > 1 else "stochastic")
     elif c == "fixed": fixed(a[0])
+    elif c == "subset": subset(a[0], a[1], float(a[2]))
     elif c == "compare": compare(a[0], a[1], a[2])
     elif c == "same": same(a[0], a[1], int(a[2]) if len(a) > 2 else 0)
     elif c == "gyration": gyration(a[0])

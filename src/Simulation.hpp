@@ -140,6 +140,7 @@ private:
     // ---- photon emission (SimulationIO.cpp): records photons_<beam>.bin, sums per step qed.txt
     bool any_qed_ = false;
     bool photon_output_ = true;              // qed.photon_output
+    std::vector<double> photon_min_energy_;  // per beam: photons below this energy (m c^2) are not written
     std::ofstream qedlog_;
     std::vector<std::FILE*> photon_files_;   // per beam (nullptr: no emission)
     void setup_qed();                        // tables (shared by the beams), output files

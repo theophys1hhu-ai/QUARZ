@@ -15,9 +15,10 @@ decks keep the momentum fixed as in the paper (`e.momentum_push = 0`, `qed.no_re
 | `larmor.in` | Fig. 1 left | gyration in B = 10 e_z, p⊥ = 40, χ₀ = 0.00096: γ 10⁵ → 99 814 (synchrotron loss with g(χ): 99 814) | 6 s |
 | `larmor_spiral.in` | Fig. 1 right | p⊥ = 200, B = 50, χ₀ = 0.024: γ → 4.8·10⁴, the orbit spirals inwards (radius 4 → 1.9) | 33 s |
 | `spectrum.in` | Fig. 2 | γ = 10⁷ in B_x, momentum fixed (`qed.no_recoil`): dN/du = C₀ w(u, χ); χ = 0.1, 1, 10 via `fields.external_B` | 1 s |
-| `spin_dependence.in` | Fig. 3 | as `spectrum.in` with the spin fixed along ±B: dN₊/du − dN₋/du = 2C₀g | 2 × 1 s |
+| `spin_dependence.in` | Fig. 3 | initial-spin dependence of the emission: beams with s₂ = +1, −1, 0 (spin fixed) in one run, χ = 1 (χ = 0.1 by override): photon numbers within 1.4σ of N_eTC₀(W + Gs₂), ratio +1/−1 0.9155 ± 0.0037 (theory 0.9128; χ = 0.1: 0.9630 ± 0.0038 vs 0.9623), dN₋/dE − dN₊/dE = −2C₀g | 1.4 s (χ = 0.1: 11 s) |
 | `sokolov_ternov.in` | Fig. 4 | spin relaxation at fixed χ = 1: ⟨s₂⟩ 1 → −0.836 (eq. 14: −0.837); χ = 0.1: −0.805 at t = 2·10⁷ (eq. 14: −0.805, limit −0.905) | 5 s |
-| `photon_polarization.in` | Fig. 5 | mean Stokes vector of the photons vs γ (χ = γ/10⁶) and spin, eq. 22 | 0.4 s per point |
+| `photon_polarization_spectrum.in` | Fig. 5 | photon polarization spectrum ξ₃(E_γ) at γ = 10⁷, χ = 0.1 for the initial spins s₂ = 0, +1, −1 (one run, six beams: all photons + the hard ones of 25 × more electrons via `photon_min_energy`): eq. 21 in all 24 bins up to 6·10⁶ mc² (largest deviation 0.013 = the u-spread within the steepest bin); at 6·10⁶: 0.53, −0.30, 0.97 (paper 0.51, −0.35, 0.97) | 18 s |
+| `photon_polarization_mean.in` | (Fig. 5) | mean Stokes vector of all photons vs the electron energy (χ = γ/10⁶) and the spin, eq. 22 | 0.4 s per point |
 | `betatron.in` | §VI.A | γ₀ = 10⁵ from x₀ = 1 in an ion channel, χ₀ = 0.005, 30 betatron periods: ⟨γ⟩ = 67 222 vs the orbit-averaged loss (eq. 26) with A ∝ γ^{1/8}: 67 148 (+0.11 %; constant A: +1.9 %); amplitude ⟨A⟩ = 0.9514 vs (γ/γ₀)^{1/8} = 0.9516 (eq. 27) | 30 s |
 | `pwfa_benchmark.in` | §VI, Figs. 6–8 | 500 pC driver + 35 pC 10 TeV witness at 2·10¹⁸ cm⁻³, t = 2700; three runs: base / synchrotron (`qed.model = continuous`) / QED | 1 min each |
 
@@ -43,13 +44,14 @@ Run from this directory, then compare with the theory (scipy; writes a plot into
 python3 analyze.py larmor larmor.in out_larmor
 ../../build/quarz spectrum.in "fields.external_B=0.41492 0 0" output.dir=out_spectrum_chi10
 python3 analyze.py spectrum spectrum.in out_spectrum_chi10 "fields.external_B=0.41492 0 0"
-../../build/quarz spin_dependence.in "e.spin=1 0 0" output.dir=out_spin_plus
-../../build/quarz spin_dependence.in "e.spin=-1 0 0" output.dir=out_spin_minus
-python3 analyze.py spindiff spin_dependence.in out_spin_plus out_spin_minus
+../../build/quarz spin_dependence.in
+python3 analyze.py spindiff spin_dependence.in out_spin_dependence
+../../build/quarz photon_polarization_spectrum.in
+python3 analyze.py polspec photon_polarization_spectrum.in out_polspec
 ../../build/quarz sokolov_ternov.in
 python3 analyze.py spin sokolov_ternov.in out_sokolov_ternov
-../../build/quarz photon_polarization.in "e.spin=1 0 0" output.dir=out_pol_sp
-python3 analyze.py polarization photon_polarization.in out_pol_sp "e.spin=1 0 0"
+../../build/quarz photon_polarization_mean.in "e.spin=1 0 0" output.dir=out_pol_sp
+python3 analyze.py polarization photon_polarization_mean.in out_pol_sp "e.spin=1 0 0"
 ../../build/quarz betatron.in
 python3 analyze.py betatron betatron.in out_betatron
 ../../build/quarz pwfa_benchmark.in witness.qed=0 output.dir=out_pwfa_base
@@ -58,7 +60,8 @@ python3 analyze.py betatron betatron.in out_betatron
 python3 analyze.py benchmark pwfa_benchmark.in out_pwfa_base out_pwfa_sync out_pwfa_qed
 ```
 
-Options for such tests (all off by default; main README §5): `qed.no_recoil` (emission without momentum
+Options for such tests (all off by default; main README §5): `<beam>.photon_min_energy` (write only the
+photons above an energy in m c²; all are emitted and counted in `qed.txt`), `qed.no_recoil` (emission without momentum
 change), `qed.fixed_spin`, `<beam>.momentum_push = 0` (the fields do not change the momentum),
 `<beam>.spin_precession = 0` (no Thomas–BMT rotation), `qed.model = continuous | classical`
 (deterministic radiation reaction: synchrotron loss with or without g(χ), no photons).

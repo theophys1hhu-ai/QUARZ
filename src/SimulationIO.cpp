@@ -800,6 +800,9 @@ void Simulation::setup_qed() {
     else qedlog_.open(outdir_ + "/qed.part" + std::to_string(r));
     if (P == 1 && fresh) qedlog_ << QED_LOG_HEADER;
     photon_output_ = cfg_.get_bool("qed.photon_output", true);
+    photon_min_energy_.assign(beams_.size(), 0.0);
+    for (size_t b = 0; b < beams_.size(); ++b)
+        photon_min_energy_[b] = cfg_.get_double(beams_[b]->name() + ".photon_min_energy", cfg_.get_double("qed.photon_min_energy", 0.0));
     for (size_t b = 0; b < beams_.size(); ++b) {
         if (!beams_[b]->qed() || !photon_output_) continue;
         const std::string fn = outdir_ + "/photons_" + beams_[b]->name() + ".bin";
@@ -821,18 +824,20 @@ void Simulation::write_photons(int n, size_t b) {
     constexpr int R = Beam::PHOTON_RECORD;
     sort_records(rec, R);
     const size_t np = rec.size() / R;
-    std::vector<double> out(np * PHOTON_NCOMP);
+    std::vector<double> out;
+    out.reserve(np * PHOTON_NCOMP);
     double sw = 0, swe = 0, swchi = 0;
+    const double emin = photon_min_energy_[b];
     for (size_t i = 0; i < np; ++i) {
         const double* q = &rec[i * R];
-        double* o = &out[i * PHOTON_NCOMP];
-        o[0] = n;
-        o[1] = t_ + q[0];
-        std::copy(q + 1, q + R, o + 2);
         const double w = q[7], e = std::sqrt(q[4] * q[4] + q[5] * q[5] + q[6] * q[6]);
-        sw += w;
+        sw += w;   // qed.txt: all photons
         swe += w * e;
         swchi += w * q[11];
+        if (e < emin) continue;   // <beam>.photon_min_energy: only the harder photons are written
+        out.push_back(n);
+        out.push_back(t_ + q[0]);
+        out.insert(out.end(), q + 1, q + R);
     }
     if (photon_files_[b]) {
         if (!out.empty()) std::fwrite(out.data(), sizeof(double), out.size(), photon_files_[b]);

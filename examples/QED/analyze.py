@@ -4,9 +4,10 @@
 usage: python3 analyze.py MODE DECK OUTDIR [OUTDIR2] [key=value ...]
   larmor        larmor.in, larmor_spiral.in: <gamma>(t) vs the synchrotron loss with g(chi); orbit radius
   spectrum      spectrum.in: dN/du vs N_e T C0 w(u, chi)                                  (Fig. 2)
-  spindiff      spin_dependence.in OUT_plus OUT_minus: dN+/du - dN-/du vs 2 N_e T C0 g  (Fig. 3)
+  spindiff      spin_dependence.in: spectra for s2 = +1, -1, 0 and their difference vs 2 N_e T C0 g  (Fig. 3)
+  polspec       photon_polarization_spectrum.in: xi_3 vs photon energy for s2 = 0, +1, -1 vs eq. 21      (Fig. 5)
   spin          sokolov_ternov.in: <s2>(t) vs eq. 14                                       (Fig. 4)
-  polarization  photon_polarization.in: <xi_3> vs eq. 22, xi_3(u) vs eq. 21                 (Fig. 5)
+  polarization  photon_polarization_mean.in: <xi_3> vs eq. 22 for one electron energy, xi_3(u) vs eq. 21
   betatron      betatron.in: <gamma>(t) vs the orbit-averaged loss with A ~ gamma^(1/8)      (eqs. 25-27)
   benchmark     pwfa_benchmark.in OUT_base OUT_sync OUT_qed: witness energy, spectra, wake (Figs. 6-8)
 The key=value arguments repeat the command-line overrides of the run (e.g. "fields.external_B=0.41492 0 0"
@@ -39,14 +40,14 @@ def deck(path, overrides):
 
 class Run:
     """the physical parameters of a run"""
-    def __init__(self, d):
+    def __init__(self, d, beam="e"):
         self.n0 = float(d["units.n0_cm3"])
         self.eta = 3.8615926796e-11 * 5.64146e4 * np.sqrt(self.n0) / 2.99792458e10   # hbar omega_p / m c^2
-        self.gamma = float(d["e.gamma"])
+        self.gamma = float(d[beam + ".gamma"])
         self.B = np.array([float(v) for v in d.get("fields.external_B", "0 0 0").split()])
         self.dt, self.steps = float(d["time.dt"]), int(d["time.steps"])
-        self.p_perp = self.gamma * np.hypot(float(d.get("e.xp0", 0)), float(d.get("e.yp0", 0)))
-        sv = [float(v) for v in d.get("e.spin", "0 0 0").split()]
+        self.p_perp = self.gamma * np.hypot(float(d.get(beam + ".xp0", 0)), float(d.get(beam + ".yp0", 0)))
+        sv = [float(v) for v in d.get(beam + ".spin", "0 0 0").split()]
         self.s2 = sv[0] / max(np.linalg.norm(sv), 1e-300) if any(sv) else 0.0   # e2 = +x for electrons along z in B_x
         self.C0 = ALPHA / (np.sqrt(3) * np.pi * self.eta * self.gamma)
         self.chi = self.eta * self.gamma * np.hypot(self.B[0], self.B[1])   # beam along z, transverse field
@@ -65,14 +66,14 @@ def plot(out, name, draw):
     print("  plot: %s" % os.path.join(out, name + ".png"))
 
 
-def photons_u(out, run):
-    p = qr.read_photons(os.path.join(out, "photons_e.bin"))
+def photons_u(out, run, beam="e"):
+    p = qr.read_photons(os.path.join(out, "photons_%s.bin" % beam))
     return p, p["energy"] / run.gamma   # no recoil: the electron energy stays gamma
 
 
-def n_electrons_time(out, run):
-    q = qr.read_qedlog(os.path.join(out, "qed.txt"))["e"]
-    b = qr.read_beamlog(os.path.join(out, "beams.txt"))["e"]
+def n_electrons_time(out, run, beam="e"):
+    q = qr.read_qedlog(os.path.join(out, "qed.txt"))[beam]
+    b = qr.read_beamlog(os.path.join(out, "beams.txt"))[beam]
     return b["alive"][0], len(q["step"]) * run.dt
 
 
@@ -142,25 +143,80 @@ def spectrum(d, out):
     plot(out, "spectrum", draw)
 
 
-def spindiff(d, outp, outm):
-    run = Run(d)
-    up, um = photons_u(outp, run)[1], photons_u(outm, run)[1]
-    Ne, T = n_electrons_time(outp, run)
-    I = integrals(run.chi)
-    hp, hm = np.histogram(up, EDGES)[0], np.histogram(um, EDGES)[0]
-    th = np.array([uint(lambda x: coef(x, run.chi)["g"], a, b) for a, b in zip(EDGES[:-1], EDGES[1:])]) * 2 * Ne * T * run.C0
-    r = len(up) / len(um)
-    print("  chi = %.3g: photons s2 = +1: %d, s2 = -1: %d; ratio %.4f +- %.4f (theory (W + G)/(W - G) = %.4f)"
-          % (run.chi, len(up), len(um), r, r * np.sqrt(1 / len(up) + 1 / len(um)), (I["w"] + I["g"]) / (I["w"] - I["g"])))
-    e_gev = 0.5 * (EDGES[1:] + EDGES[:-1]) * run.gamma * 0.51099895e-3
+def spindiff(d, out):
+    """spin_dependence.in: beams par (s2 = +1), anti (s2 = -1) and unpol (no spin) in one run (Fig. 3)"""
+    runs = {b: Run(d, b) for b in ("par", "anti", "unpol")}
+    chi = runs["par"].chi
+    u = {b: photons_u(out, runs[b], b)[1] for b in runs}
+    Ne, T = n_electrons_time(out, runs["par"], "par")
+    C0 = runs["par"].C0
+    I = integrals(chi)
+    h = {b: np.histogram(u[b], EDGES)[0] for b in runs}
+    bins = list(zip(EDGES[:-1], EDGES[1:]))
+    wb = np.array([uint(lambda x: coef(x, chi)["w"], a, c) for a, c in bins]) * Ne * T * C0
+    gb = np.array([uint(lambda x: coef(x, chi)["g"], a, c) for a, c in bins]) * Ne * T * C0
+    for b, S in (("par", 1), ("anti", -1), ("unpol", 0)):
+        n, e = len(u[b]), Ne * T * C0 * (I["w"] + S * I["g"])
+        print("  chi = %.3g, %-5s (s2 = %+d): %d photons, expected N_e T C0 (W + G s2) = %.1f (%+.2f sigma)"
+              % (chi, b, S, n, e, (n - e) / np.sqrt(e)))
+    r = len(u["par"]) / len(u["anti"])
+    print("  ratio parallel / antiparallel %.4f +- %.4f (theory (W + G)/(W - G) = %.4f)"
+          % (r, r * np.sqrt(1 / len(u["par"]) + 1 / len(u["anti"])), (I["w"] + I["g"]) / (I["w"] - I["g"])))
+    e_gev = 0.5 * (EDGES[1:] + EDGES[:-1]) * runs["par"].gamma * 0.51099895e-3
+    de = np.diff(EDGES) * runs["par"].gamma * 0.51099895e-3
 
     def draw(plt):
-        fig, ax = plt.subplots(figsize=(6, 4))
-        ax.plot(e_gev, hp - hm, "-", label="QUARZ: N(s2 = +1) - N(s2 = -1)")
-        ax.plot(e_gev, th, "--", label="2 N_e T C0 g du")
-        ax.set_xlabel("photon energy [GeV]"); ax.set_ylabel("photons per bin"); ax.legend()
+        fig, ax = plt.subplots(2, 1, figsize=(6, 7), sharex=True)
+        for b, S, st in (("anti", -1, "-"), ("par", 1, "-"), ("unpol", 0, "-")):
+            ax[0].semilogy(e_gev, h[b] / de, st, label="QUARZ s2 = %+d" % S)
+            ax[0].semilogy(e_gev, (wb + S * gb) / de, "k--", lw=0.7)
+        pos = min((h[b] / de)[h[b] > 0].min() for b in h)
+        ax[0].set_ylim(bottom=0.3 * pos)
+        ax[0].set_ylabel("dN/dE [1/GeV]"); ax[0].legend(title="chi = %.3g (dashed: theory)" % chi)
+        ax[1].plot(e_gev, (h["anti"] - h["par"]) / de, label="QUARZ: N(s2 = -1) - N(s2 = +1)")
+        ax[1].plot(e_gev, -2 * gb / de, "--", label="theory: -2 N_e T C0 g")
+        ax[1].set_xlabel("photon energy [GeV]"); ax[1].set_ylabel("Delta dN/dE [1/GeV]"); ax[1].legend()
         return fig
-    plot(outp, "spindiff", draw)
+    plot(out, "spindiff", draw)
+
+
+def polspec(d, out):
+    """photon_polarization_spectrum.in (Fig. 5): xi_3 vs photon energy for the initial spins s2 = 0, +1, -1;
+    beam X writes all photons, beam X_tail (more electrons) only the hard ones (X_tail.photon_min_energy)"""
+    rows = []
+    edges = np.linspace(0, 6e6, 25)   # photon energy in m c^2 (the paper's axis)
+    curves = {}
+    for b, S in (("unpol", 0), ("par", 1), ("anti", -1)):
+        run = Run(d, b)
+        emin = float(d.get(b + "_tail.photon_min_energy", 0))
+        pa, pt = qr.read_photons(os.path.join(out, "photons_%s.bin" % b)), qr.read_photons(os.path.join(out, "photons_%s_tail.bin" % b))
+        E = np.concatenate([pa["energy"][pa["energy"] < emin], pt["energy"]])
+        X = np.concatenate([pa["xi3"][pa["energy"] < emin], pt["xi3"]])
+        c, m, th = [], [], []
+        for lo, hi in zip(edges[:-1], edges[1:]):
+            sel = (E >= lo) & (E < hi)
+            if sel.sum() < 3:
+                continue
+            ul, uh = lo / run.gamma, hi / run.gamma
+            ref = uint(lambda x: coef(x, run.chi)["x3"] + S * coef(x, run.chi)["x3s"], max(ul, 1e-12), uh) / \
+                uint(lambda x: coef(x, run.chi)["w"] + S * coef(x, run.chi)["g"], max(ul, 1e-12), uh)
+            c.append(0.5 * (lo + hi)); m.append(np.mean(X[sel])); th.append(ref)
+        c, m, th = np.array(c), np.array(m), np.array(th)
+        curves[S] = (c, m, th)
+        print("  chi = %.3g, s2 = %+d: %d + %d photons (all / hard), xi_3 in %d bins up to %.3g m c^2: max |QUARZ - eq. 21| = %.1e;"
+              " xi_3 at the highest bin %.3f (eq. 21: %.3f)" % (run.chi, S, len(pa["energy"]), len(pt["energy"]), len(c), c[-1] + 0.5 * (edges[1] - edges[0]),
+                                                                np.max(np.abs(m - th)), m[-1], th[-1]))
+
+    def draw(plt):
+        fig, ax = plt.subplots(figsize=(6, 4.5))
+        for S, col in ((0, "C0"), (-1, "C3"), (1, "C2")):
+            c, m, th = curves[S]
+            ax.plot(c, m, "x", color=col)
+            ax.plot(c, th, "--", color=col, label="s2 = %+d (eq. 21)" % S)
+        ax.set_xlabel("photon energy [m c^2]"); ax.set_ylabel("<xi_3>"); ax.set_ylim(-1, 1); ax.grid(alpha=0.3)
+        ax.legend(loc="lower left"); ax.set_title("crosses: QUARZ")
+        return fig
+    plot(out, "polspec", draw)
 
 
 def spin(d, out):
@@ -321,6 +377,6 @@ if __name__ == "__main__":
     outs = [a for a in sys.argv[3:] if "=" not in a]
     d = deck(deckfile, [a for a in sys.argv[3:] if "=" in a])
     {"larmor": lambda: larmor(d, outs[0]), "spectrum": lambda: spectrum(d, outs[0]),
-     "spindiff": lambda: spindiff(d, outs[0], outs[1]), "spin": lambda: spin(d, outs[0]),
+     "spindiff": lambda: spindiff(d, outs[0]), "polspec": lambda: polspec(d, outs[0]), "spin": lambda: spin(d, outs[0]),
      "polarization": lambda: polarization(d, outs[0]), "betatron": lambda: betatron(d, outs[0]),
      "benchmark": lambda: benchmark(d, outs[0], outs[1], outs[2])}[mode]()

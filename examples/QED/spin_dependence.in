@@ -1,13 +1,12 @@
-# Spin dependence of the emission (QED module paper, Fig. 3): as spectrum.in (gamma = 1e7, chi = 1, no
-# recoil), with the spin of all electrons fixed parallel or antiparallel to the field (qed.fixed_spin).
-# For electrons moving along z in B = B_x, e2 = e_v x e1 points along +x, so e.spin = 1 0 0 is s2 = +1.
-# Run both orientations:
-#   ../../build/quarz spin_dependence.in "e.spin=1 0 0"  output.dir=out_spin_plus
-#   ../../build/quarz spin_dependence.in "e.spin=-1 0 0" output.dir=out_spin_minus
-# Expected: dN+/du - dN-/du = 2 C0 g(u, chi) N_e T with g = -u K_1/3(y) (fewer photons for the spin along
-# the field); total rates in the ratio (W + G)/(W - G) = 0.913 at chi = 1. Photon energies in GeV:
-# u gamma 0.511e-3 (u = 1: 5.1 TeV).
-# Analysis: python3 analyze.py spindiff spin_dependence.in out_spin_plus out_spin_minus
+# Dependence of the emission on the initial electron spin (QED module paper, Fig. 3): electrons with
+# gamma = 1e7 in B = B_x at chi = 1, momentum and spin fixed, three beams in one run:
+#   par: s2 = +1 (spin along B),   anti: s2 = -1 (antiparallel),   unpol: no spin (s2 = 0)
+# (e2 = +x for electrons moving along z in B_x). Expected: dN/(dt du) = C0 (w + g s2) with g = -u K_1/3(y),
+# so dN_anti/du - dN_par/du = -2 C0 g N_e T > 0 (the spin along the field emits less) and the total rates
+# are in the ratio (W + G)/(W - G) = 0.913 at chi = 1. Photon energies in GeV: u gamma 0.511e-3 (u = 1: 5.1 TeV).
+# chi = 0.1 (the other curve of Fig. 3):  "fields.external_B=0.0041492 0 0" time.steps=800 output.dir=out_spin_chi0.1
+# (W(0.1) = 0.73 instead of 5.63: 8 x longer for the same number of photons).
+# Analysis: python3 analyze.py spindiff spin_dependence.in out_spin_dependence
 units.n0_cm3 = 1.1e21
 grid.type = uniform
 grid.rmax = 4
@@ -15,28 +14,51 @@ grid.dr = 0.2
 xi.min = 0
 xi.max = 1
 xi.step = 0.05
-time.dt = 100
-time.steps = 100
 plasma.species = ions
 ions.charge = 1
 ions.mass = 1836
 ions.mobile = 0
 plasma.density(x,y,z) = "0"
-fields.external_B = 0.041492 0 0
-beams = e
-e.n0 = 1e-9
-e.gamma = 1e7
-e.sigma_r = 0.01
-e.sigma_xi = 0.01
-e.xi0 = 0.5
-e.emit_n = 0
-e.nparticles = 20000
-e.passive = 1
-e.scattering = 0
-e.qed = 1
-e.spin = 1 0 0
 qed.no_recoil = 1
-e.momentum_push = 0      # momentum fixed as in the paper (the field only sets chi)
 qed.fixed_spin = 1
-output.dir = out_spin_plus
+fields.external_B = 0.041492 0 0
+time.dt = 100
+time.steps = 100
+beams = par anti unpol
+par.n0 = 1e-9
+par.gamma = 1e7
+par.sigma_r = 0.01
+par.sigma_xi = 0.01
+par.xi0 = 0.5
+par.emit_n = 0
+par.nparticles = 40000
+par.passive = 1
+par.scattering = 0
+par.qed = 1
+par.momentum_push = 0
+par.spin = 1 0 0
+anti.n0 = 1e-9
+anti.gamma = 1e7
+anti.sigma_r = 0.01
+anti.sigma_xi = 0.01
+anti.xi0 = 0.5
+anti.emit_n = 0
+anti.nparticles = 40000
+anti.passive = 1
+anti.scattering = 0
+anti.qed = 1
+anti.momentum_push = 0
+anti.spin = -1 0 0
+unpol.n0 = 1e-9
+unpol.gamma = 1e7
+unpol.sigma_r = 0.01
+unpol.sigma_xi = 0.01
+unpol.xi0 = 0.5
+unpol.emit_n = 0
+unpol.nparticles = 40000
+unpol.passive = 1
+unpol.scattering = 0
+unpol.qed = 1
+unpol.momentum_push = 0
+output.dir = out_spin_dependence
 output.every = 0

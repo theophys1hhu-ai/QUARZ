@@ -331,6 +331,7 @@ out_opmd_nat vs out_opmd_p2n: iterations [0, 2], max rel diff 0.00e+00
 == 26. photon emission (nonlinear Compton, LCFA) with spin and photon polarization: electrons in a constant field B ==
  (a) photon number and spectrum without recoil, spin averaged (inversion sampler unless noted):
   chi = 1, s2 = +0: 26119 photons, expected 25956.9 (+1.01 sigma); spectrum chi^2/dof = 0.84 (20 bins); <u> = 0.11826 (expected 0.11740)
+  photon_min_energy = 2e+04: 5593 of 26119 records written, identical to the full run's records above it; qed.txt identical
    rejection sampler:
   chi = 1, s2 = +0: 25994 photons, expected 25956.9 (+0.23 sigma); spectrum chi^2/dof = 0.48 (20 bins); <u> = 0.11736 (expected 0.11740)
  (b) spin-resolved emission (spin fixed along +-B, no recoil): rate and spectrum difference, photon polarization:
