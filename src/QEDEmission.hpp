@@ -29,11 +29,17 @@ namespace qed {
 
 enum Sampler : int { INVERSION = 0, REJECTION = 1 };
 enum SpinModel : int { MIXED = 0, PURE = 1 };
+// stochastic: photon emission (the samplers); continuous / classical: deterministic radiation reaction,
+// d gamma/dt = -P with the mean power of the stochastic emission P = alpha/(sqrt3 pi eta) int u (w + g s2) du
+// (synchrotron loss x g(chi)), or the classical P = (2 alpha / 3 eta) chi^2 (g = 1); no photons, the spin
+// keeps only its precession
+enum Model : int { STOCHASTIC = 0, CONTINUOUS = 1, CLASSICAL = 2 };
 
 // everything the push needs: parameters and the tables (device-copyable)
 struct Emission {
     int sampler = INVERSION;
     int spin_model = MIXED;
+    int model = STOCHASTIC;
     Real eta = 0;              // hbar omega_p / (m c^2)
     Real charge = -1;          // charge sign of the lepton (enters the basis through e1)
     Real p_max = 0.1;          // largest emission probability per sub-step (sets the number of sub-steps)
@@ -134,12 +140,38 @@ KOKKOS_INLINE_FUNCTION Photon emit(const Emission& Q, bool has_spin, Real u_ph, 
     return ph;
 }
 
+// Deterministic radiation reaction over a time h (qed.model = continuous | classical): the lepton keeps
+// its direction, d gamma/dt = -P(chi), chi ~ gamma in the fields of the sub-step; second order (midpoint).
+KOKKOS_INLINE_FUNCTION void radiate_continuously(const Emission& Q, bool has_spin, const V3& E, const V3& B, Real h,
+                                                 V3& p, const V3& S) {
+    Basis b;
+    const Real chi0 = chi_basis(p, E, B, Q.charge, Q.eta, b);
+    if (!(chi0 > Real(0))) return;
+    const Real gamma0 = Kokkos::sqrt(Real(1) + push::dot(p, p));
+    const Real s2 = has_spin ? push::dot(S, b.e2) : Real(0);
+    const Real k = Real(ALPHA * bessel::INV_PI_SQRT3) / Q.eta;   // gamma C0: P = gamma C0 int u (w + g s2) du
+    auto loss_rate = [&](Real gamma) {   // d gamma/dt at energy gamma (chi scales with gamma)
+        const Real chi_g = chi0 * gamma / gamma0;
+        if (Q.model == CLASSICAL) return Real(2.0 / 3.0 * ALPHA) / Q.eta * chi_g * chi_g;
+        const RateValues r = Q.rates(chi_g);
+        return k * (r.Wu + r.Gu * s2);
+    };
+    const Real g_half = gamma0 - Real(0.5) * h * loss_rate(gamma0);
+    Real g1 = gamma0 - h * loss_rate(g_half > Real(1) ? g_half : Real(1));
+    if (g1 < Real(1)) g1 = Real(1);
+    p = Kokkos::sqrt(g1 * g1 - Real(1)) * b.ev;
+}
+
 // QED during one sub-step of length h for a particle with momentum p, spin S (has_spin) and optical
 // depth tau (inversion sampler) in the fields E, B. record(photon) is called for every emitted photon.
 template <class Record>
 KOKKOS_INLINE_FUNCTION void substep(const Emission& Q, bool has_spin, const V3& E, const V3& B, Real h, V3& p, V3& S,
                                     Real& tau, ParticleRandom& random, Record record) {
     if (!(h > Real(0))) return;
+    if (Q.model != STOCHASTIC) {
+        if (Q.recoil) radiate_continuously(Q, has_spin, E, B, h, p, S);
+        return;
+    }
 
     if (Q.sampler == INVERSION) {
         Real t_done = 0;

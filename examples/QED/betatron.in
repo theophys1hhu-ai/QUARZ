@@ -1,0 +1,40 @@
+# Betatron oscillation with radiation losses (QED module paper, section VI.A): electrons with gamma_0 = 1e5
+# start at x_0 = 1 (no transverse momentum) in a pure ion channel (immobile ions, n0 = 2e18 cm^-3, no plasma
+# electrons): E_r = r/2, betatron frequency omega_beta = 1/sqrt(2 gamma) (period 2810 at gamma = 1e5).
+# chi = eta gamma r/2 = 0.005 at the turning points (eta = 1.03e-7); the electrons lose ~1.7 % of their
+# energy per betatron period (30 periods here). Averaged over an oscillation of amplitude A the loss is
+#   d gamma/dt = -(2 alpha / 3 eta) chi_eff^2 g(chi_eff),   chi_eff = eta gamma r_eff / 2,  r_eff = A / sqrt(2),
+# and the amplitude shrinks as A = A_0 (gamma / gamma_0)^(1/8) (eq. 27): the emission happens mostly near
+# the turning points, where it takes energy but little transverse momentum.
+# Variants: qed.model=continuous (deterministic loss with g(chi)), qed.sampler=rejection.
+# Analysis: python3 analyze.py betatron betatron.in out_betatron
+units.n0_cm3 = 2e18
+modes = 1
+grid.type = uniform
+grid.rmax = 3
+grid.dr = 0.02
+xi.min = 0
+xi.max = 1
+xi.step = 0.1
+time.dt = 10
+time.steps = 8400
+plasma.species = ions
+ions.charge = 1
+ions.mass = 1836
+ions.mobile = 0
+beams = e
+e.n0 = 1e-9
+e.gamma = 1e5
+e.sigma_r = 1e-4
+e.sigma_xi = 1e-3
+e.xi0 = 0.3
+e.emit_n = 0
+e.x0 = 1
+e.nparticles = 2000
+e.passive = 1
+e.scattering = 0
+e.qed = 1
+qed.photon_output = 0
+output.dir = out_betatron
+output.every = 0
+output.beam_every = 280

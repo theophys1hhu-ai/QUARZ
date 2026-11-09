@@ -7,6 +7,8 @@ usage: python3 analyze.py MODE DECK OUTDIR [OUTDIR2] [key=value ...]
   spindiff      spin_dependence.in OUT_plus OUT_minus: dN+/du - dN-/du vs 2 N_e T C0 g  (Fig. 3)
   spin          sokolov_ternov.in: <s2>(t) vs eq. 14                                       (Fig. 4)
   polarization  photon_polarization.in: <xi_3> vs eq. 22, xi_3(u) vs eq. 21                 (Fig. 5)
+  betatron      betatron.in: <gamma>(t) vs the orbit-averaged loss with A ~ gamma^(1/8)      (eqs. 25-27)
+  benchmark     pwfa_benchmark.in OUT_base OUT_sync OUT_qed: witness energy, spectra, wake (Figs. 6-8)
 The key=value arguments repeat the command-line overrides of the run (e.g. "fields.external_B=0.41492 0 0"
 e.gamma=3e6 "e.spin=1 0 0"). Prints the comparison and writes OUTDIR/<mode>.png (with matplotlib).
 The theory functions (scipy, independent of the C++ code) come from validation/qed_check.py.
@@ -208,6 +210,110 @@ def polarization(d, out):
     plot(out, "polarization", draw)
 
 
+def gaunt_interp(chi_max):
+    """g(chi) = int u w du / ((2 pi/sqrt 3) chi^2) on a log grid up to chi_max, as a function"""
+    chis = np.geomspace(1e-6, chi_max * 1.01, 40)
+    gc = np.array([uint(lambda u, c=c: u * coef(u, c)["w"]) / (2 * np.pi / np.sqrt(3) * c * c) for c in chis])
+    return lambda c: np.interp(np.log(np.maximum(c, 1e-6)), np.log(chis), gc)
+
+
+def betatron(d, out):
+    """pure ion channel: E_r = r/2 (immobile ions of density 1), electrons start at x_0 with p_perp = 0"""
+    import glob
+    run = Run(d)
+    A0 = float(d.get("e.x0", 1))
+    b = qr.read_beamlog(os.path.join(out, "beams.txt"))["e"]
+    t, g = b["t"], b["gamma_mean"]
+    k = 2 * ALPHA / (3 * run.eta)
+    gfun = gaunt_interp(run.eta * run.gamma * A0 / 2)
+    def ode(expo):   # d gamma/dt = -k chi_eff^2 g(chi_eff), chi_eff = eta gamma A / (2 sqrt 2), A = A0 (gamma/gamma0)^expo
+        def rhs(tt, y):
+            A = A0 * (y[0] / run.gamma) ** expo
+            c = run.eta * y[0] * A / (2 * np.sqrt(2))
+            return [-k * c * c * gfun(c)]
+        return si.solve_ivp(rhs, (0, t[-1]), [run.gamma], t_eval=t, rtol=1e-9).y[0]
+    g8, g0 = ode(1 / 8), ode(0.0)
+    # amplitude of every particle: A^2 = x^2 + (x'/omega_beta)^2 = x^2 + 2 p_x^2 / gamma  (omega_beta^2 = 1/(2 gamma))
+    ta, Am = [], []
+    for f in sorted(glob.glob(os.path.join(out, "beam_e_*.bin"))):
+        p = qr.read_beam(f)
+        gam = np.sqrt(1 + p["px"] ** 2 + p["py"] ** 2 + p["pz"] ** 2)
+        ta.append(int(f.split("_")[-1].split(".")[0]) * run.dt)
+        Am.append(np.mean(np.sqrt(p["x"] ** 2 + 2 * p["px"] ** 2 / gam)))
+    ta, Am = np.array(ta), np.array(Am)
+    gi = np.interp(ta, t, g)
+    print("  gamma_0 = %.3g, A_0 = %.3g, chi_0 = %.3g (turning points), %.1f betatron periods" % (
+        run.gamma, A0, run.eta * run.gamma * A0 / 2, t[-1] / (2 * np.pi * np.sqrt(2 * run.gamma))))
+    print("  <gamma> at the end: QUARZ %.6g; orbit-averaged ODE with A ~ gamma^(1/8): %.6g (%+.2f %%); with constant A: %.6g (%+.2f %%)"
+          % (g[-1], g8[-1], 100 * (g[-1] / g8[-1] - 1), g0[-1], 100 * (g[-1] / g0[-1] - 1)))
+    print("  amplitude <A> at the end: %.5f; A_0 (gamma/gamma_0)^(1/8) = %.5f; A_0 (gamma/gamma_0)^(1/4) = %.5f"
+          % (Am[-1], A0 * (gi[-1] / run.gamma) ** 0.125, A0 * (gi[-1] / run.gamma) ** 0.25))
+
+    def draw(plt):
+        fig, ax = plt.subplots(1, 2, figsize=(10, 4))
+        ax[0].plot(t, g, label="QUARZ <gamma>")
+        ax[0].plot(t, g8, "r--", label="eq. 26 with A ~ gamma^(1/8)")
+        ax[0].plot(t, g0, "k:", label="eq. 26 with A = A_0")
+        ax[0].set_xlabel("t [1/omega_p]"); ax[0].set_ylabel("gamma"); ax[0].legend()
+        ax[1].plot(ta, Am / A0, "x", label="QUARZ <A>/A_0")
+        ax[1].plot(ta, (gi / run.gamma) ** 0.125, "r--", label="(gamma/gamma_0)^(1/8)")
+        ax[1].set_xlabel("t [1/omega_p]"); ax[1].set_ylabel("A / A_0"); ax[1].legend()
+        return fig
+    plot(out, "betatron", draw)
+
+
+MC2_GEV = 0.51099895e-3
+
+
+def benchmark(d, base, sync, qed):
+    import glob
+    def wlog(o):
+        return qr.read_beamlog(os.path.join(o, "beams.txt"))["witness"]
+    wb, ws, wq = wlog(base), wlog(sync), wlog(qed)
+    E = lambda w: w["gamma_mean"] * MC2_GEV
+    print("  witness energy: start %.4g GeV; base (no radiation) gain %+.4g GeV at t = %.4g" % (E(wb)[0], E(wb)[-1] - E(wb)[0], wb["t"][-1]))
+    print("  with radiation at t = %.4g: synchrotron (continuous, g(chi)) %.5g GeV, QED %.5g GeV (rms %.4g GeV)"
+          % (ws["t"][-1], E(ws)[-1], E(wq)[-1], wq["gamma_rms"][-1] * MC2_GEV))
+    last = lambda o: sorted(glob.glob(os.path.join(o, "beam_witness_*.bin")))[-1]
+    es, eq = [np.sqrt(1 + p["px"] ** 2 + p["py"] ** 2 + p["pz"] ** 2) * MC2_GEV for p in (qr.read_beam(last(sync)), qr.read_beam(last(qed)))]
+    ph = qr.read_photons(os.path.join(qed, "photons_witness.bin"))
+    print("  final witness energy spread (rms): synchrotron %.4g GeV, QED %.4g GeV; QED energy range %.4g ... %.4g GeV"
+          % (np.std(es), np.std(eq), eq.min(), eq.max()))
+    print("  photons (QED): %d macro-photons, max energy %.4g GeV, emitter chi: mean %.3g, max %.3g"
+          % (len(ph["energy"]), ph["energy"].max() * MC2_GEV, np.average(ph["chi"]), ph["chi"].max()))
+
+    def draw(plt):
+        fig, ax = plt.subplots(2, 2, figsize=(11, 8))
+        ax[0, 0].plot(wb["t"], E(wb) - E(wb)[0], label="base: energy gain")
+        ax[0, 0].set_xlabel("t [1/omega_p]"); ax[0, 0].set_ylabel("Delta E [GeV]"); ax[0, 0].legend()
+        ax[0, 1].plot(wq["t"], E(wq), label="QED"); ax[0, 1].plot(ws["t"], E(ws), "--", label="synchrotron")
+        ax[0, 1].set_xlabel("t [1/omega_p]"); ax[0, 1].set_ylabel("E [GeV]"); ax[0, 1].legend()
+        bins = np.linspace(0, max(eq.max(), es.max()) * 1.02, 120)
+        ax[1, 1].semilogy(0.5 * (bins[1:] + bins[:-1]), np.histogram(eq, bins)[0], label="QED")
+        ax[1, 1].semilogy(0.5 * (bins[1:] + bins[:-1]), np.histogram(es, bins)[0], "--", label="synchrotron")
+        ax[1, 1].set_xlabel("E_e [GeV]"); ax[1, 1].set_ylabel("witness macro-particles per bin"); ax[1, 1].legend()
+        pb = np.linspace(0, ph["energy"].max() * MC2_GEV, 120)
+        ax[1, 0].semilogy(0.5 * (pb[1:] + pb[:-1]), np.histogram(ph["energy"] * MC2_GEV, pb, weights=ph["w"])[0] / np.diff(pb))
+        ax[1, 0].set_xlabel("E_gamma [GeV]"); ax[1, 0].set_ylabel("dN/dE (weights)")
+        return fig
+    plot(qed, "benchmark", draw)
+
+    fs = sorted(glob.glob(os.path.join(qed, "fields_*.bin")))
+    fmid = [f for f in fs if f.endswith("_000140.bin")]
+    if fmid:
+        F = qr.read_fields(fmid[0])
+        def draw2(plt):
+            fig, ax = plt.subplots(1, 2, figsize=(11, 4))
+            ext = [F["xi"][0], F["xi"][-1], 0, F["r"][-1]]
+            ax[0].imshow(np.minimum(F["ne"].T, 10), origin="lower", aspect="auto", extent=ext, cmap="gray_r")
+            ax[0].contour(F["xi"], F["r"], np.abs(F["rhob"]).T, levels=[0.5, 2, 5], colors="orange", linewidths=0.8)
+            ax[0].set_xlabel("xi [1/k_p]"); ax[0].set_ylabel("r [1/k_p]"); ax[0].set_title("n_e / n_0 (beams: contours), t = %.0f" % F["t"])
+            ax[1].imshow(F["ez"].T, origin="lower", aspect="auto", extent=ext, cmap="RdBu_r", vmin=-5, vmax=5)
+            ax[1].set_xlabel("xi [1/k_p]"); ax[1].set_title("E_z / E_0")
+            return fig
+        plot(qed, "benchmark_wake", draw2)
+
+
 if __name__ == "__main__":
     if len(sys.argv) < 4:
         sys.exit(__doc__)
@@ -216,4 +322,5 @@ if __name__ == "__main__":
     d = deck(deckfile, [a for a in sys.argv[3:] if "=" in a])
     {"larmor": lambda: larmor(d, outs[0]), "spectrum": lambda: spectrum(d, outs[0]),
      "spindiff": lambda: spindiff(d, outs[0], outs[1]), "spin": lambda: spin(d, outs[0]),
-     "polarization": lambda: polarization(d, outs[0])}[mode]()
+     "polarization": lambda: polarization(d, outs[0]), "betatron": lambda: betatron(d, outs[0]),
+     "benchmark": lambda: benchmark(d, outs[0], outs[1], outs[2])}[mode]()

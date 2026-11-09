@@ -3,19 +3,18 @@
 # fixed (qed.no_recoil = 1), the spin free. The mean spin relaxes as eq. 14,
 #   <s2>(t) = (S0 - S_inf) exp(C0 (Xi - W) t) + S_inf,   S_inf = -0.8375 at chi = 1 (-8 sqrt(3)/15 = -0.924 for chi -> 0),
 # with 1/(C0 (W - Xi)) = 7.8e4 here (omega_0 t ~ 1e5 ... 5e5, as in the paper).
-# chi = 0.1 relaxes ~90 times slower (1/(C0 (W - Xi)) = 6.8e6 at gamma = 1e7). The sideways drift over a
-# relaxation time shrinks with gamma, so use gamma = 1e9 (relaxation time 6.8e8) and a wide box:
-#   e.gamma=1e9 "fields.external_B=4.1492e-5 0 0" time.dt=2e6 time.steps=1000 grid.rmax=1e5 grid.dr=5000
+# chi = 0.1 relaxes ~90 times slower (1/(C0 (W - Xi)) = 6.8e6), towards -0.905:
+#   "fields.external_B=0.0041492 0 0" time.dt=2e4 time.steps=1000
 # Spin model and sampler: qed.spin_model = mixed | pure, qed.sampler = inversion | rejection.
 # The photons are not written (qed.photon_output = 0: ~3e8 photons); qed.txt still counts them.
-# The field turns the momenta by B t / gamma = 2.5e-3: the bunch moves ~750 c/omega_0 sideways (large box).
+# The momentum is fixed (e.momentum_push = 0, as in the paper): the field only sets chi.
 # Output: spin.txt (<s_x> = <s2>). Analysis: python3 analyze.py spin sokolov_ternov.in out_sokolov_ternov
 units.n0_cm3 = 1.1e21
 grid.type = uniform
-grid.rmax = 1000
-grid.dr = 20
+grid.rmax = 4
+grid.dr = 0.2
 xi.min = 0
-xi.max = 3
+xi.max = 1
 xi.step = 0.05
 time.dt = 1000
 time.steps = 600
@@ -38,6 +37,7 @@ e.scattering = 0
 e.qed = 1
 e.spin = 1 0 0
 qed.no_recoil = 1
+e.momentum_push = 0
 qed.photon_output = 0
 output.dir = out_sokolov_ternov
 output.every = 0

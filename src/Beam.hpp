@@ -167,6 +167,8 @@ private:
     BeamPusher pusher_ = BeamPusher::Vay;
     Scatter sc_;   // <beam>.scattering
     bool ext_on_ = false;           // constant external fields (fields.external_E / external_B)
+    bool push_momentum_ = true;     // <beam>.momentum_push = 0: fields do not change the momentum (testing)
+    bool precession_ = true;        // <beam>.spin_precession = 0: no Thomas-BMT rotation (testing)
     Real ext_E_[3] = {0, 0, 0}, ext_B_[3] = {0, 0, 0};
     Real rr_ = 0;   // (2/3) r_e k_p q^2/m, 0 = no radiation reaction
     int Np_ = 0;
@@ -182,7 +184,7 @@ private:
     qed::Emission qed_;             // parameters and tables (device-copyable)
     uint64_t qed_seed_ = 1;
     View1D tau_;                    // optical depth (inversion sampler)
-    bool has_tau() const { return qed_on_ && qed_.sampler == qed::INVERSION; }
+    bool has_tau() const { return qed_on_ && qed_.model == qed::STOCHASTIC && qed_.sampler == qed::INVERSION; }
     Kokkos::View<Real**, Kokkos::LayoutRight, MemSpace> ph_rec_;   // device buffer of photon records
     Kokkos::View<int, MemSpace> ph_count_;
     Kokkos::View<int*, MemSpace> nsub_;   // sub-steps of every particle in the current push

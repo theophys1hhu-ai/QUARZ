@@ -8,7 +8,9 @@ usage: qed_check.py spectrum DIR S            photon number and spectrum vs C0 (
        qed_check.py spindiff DIR_plus DIR_minus   spectrum difference (S = +1) - (S = -1) vs 2 C0 g
        qed_check.py spin DIR S0               <s2>(t) vs eq. 14 (no recoil)
        qed_check.py polar DIR S               mean Stokes vector vs eq. 22, xi_3(u) vs eq. 21 (fixed spin)
-       qed_check.py energy DIR                <gamma>(t) vs the ODE d gamma/dt = -P(gamma); energy balance
+       qed_check.py energy DIR [model]        <gamma>(t) vs the ODE d gamma/dt = -P(gamma); energy balance
+                                              (model continuous | classical: deterministic, g = 1 for classical)
+       qed_check.py fixed DIR                 momentum_push = 0, spin_precession = 0: p and s unchanged
        qed_check.py compare DIR_A DIR_B label final <gamma>, gamma_rms of two runs (statistics)
        qed_check.py same DIR_A DIR_B [step0]  photon records and qed.txt identical (from step0 on)
        qed_check.py gyration DIR              no QED: rotation of p in B by omega t = B t / gamma
@@ -184,18 +186,26 @@ def polar(d, S):
                                                                      max(abs(m[0]), abs(m[1])) > 1e-12)))
 
 
-def energy(d):
+def energy(d, model="stochastic"):
     p = deck(d)
     b = qr.read_beamlog(d + "/beams.txt")["e"]
     t, gm = b["t"], b["gamma_mean"]
     # ODE: d gamma/dt = -C0(gamma) gamma int u w du = -alpha/(sqrt3 pi eta) Wu(eta gamma B)
     k = ALPHA / (np.sqrt(3) * np.pi * p["eta"])
     chis = np.geomspace(1e-3, p["chi"] * 1.01, 60)
-    Wu = np.array([uint(lambda u, c=c: u * coef(u, c)["w"]) for c in chis])
+    if model == "classical":   # g = 1: int u w du -> (2 pi / sqrt 3) chi^2
+        Wu = 2 * np.pi / np.sqrt(3) * chis ** 2
+    else:
+        Wu = np.array([uint(lambda u, c=c: u * coef(u, c)["w"]) for c in chis])
     lw = np.polyfit(np.log(chis), np.log(Wu), 9)
     rhs = lambda tt, g: [-k * np.exp(np.polyval(lw, np.log(p["eta"] * g[0] * p["B"])))]
     sol = si.solve_ivp(rhs, (0, t[-1]), [p["gamma"]], t_eval=t, rtol=1e-10, atol=1e-6)
     dev = np.max(np.abs(gm / sol.y[0] - 1))
+    if model != "stochastic":   # deterministic radiation reaction: no photons, every electron the same
+        print("  qed.model = %s, chi_0 = %.3g: <gamma>(t)/gamma_ODE - 1 over %d steps (gamma %.4g -> %.4g): max %.2e;"
+              " gamma_rms %.1e%s" % (model, p["chi"], len(t), gm[0], gm[-1], dev, b["gamma_rms"][-1],
+                                     mark(dev > 1e-4 or b["gamma_rms"][-1] > 1e-6 * gm[-1])))
+        return
     # energy balance: sum over photons of w k = sum over electrons of w (gamma_0 - gamma(T))
     ph = qr.read_photons(d + "/photons_e.bin")
     nT = b["step"][-1]
@@ -233,6 +243,18 @@ def same(da, db, step0=0):
                                                                    "identical" if la == lb else "DIFFERS", mark(not ok or la != lb)))
 
 
+def fixed(d):
+    """<beam>.momentum_push = 0, <beam>.spin_precession = 0: momenta and spins of the first and last dump equal"""
+    import glob
+    fs = sorted(glob.glob(d + "/beam_e_*.bin"))
+    a, b = qr.read_beam(fs[0]), qr.read_beam(fs[-1])
+    dp = max(np.max(np.abs(a[k] - b[k])) for k in ("px", "py", "pz"))
+    ds = max(np.max(np.abs(a[k] - b[k])) for k in ("sx", "sy", "sz")) if "sx" in a else 0.0
+    moved = np.max(np.abs(a["xi"] - b["xi"])) + np.max(np.abs(a["x"] - b["x"])) + np.max(np.abs(a["y"] - b["y"]))
+    print("  momentum_push = 0, spin_precession = 0 in B (no QED), %d steps: max |p change| %.1e, max |s change| %.1e"
+          " (positions drift: %.2g)%s" % (int(fs[-1].split("_")[-1].split(".")[0]), dp, ds, moved, mark(dp != 0 or ds != 0)))
+
+
 def gyration(d):
     p = deck(d)
     import glob
@@ -254,7 +276,8 @@ if __name__ == "__main__":
     elif c == "spindiff": spindiff(a[0], a[1])
     elif c == "spin": spin(a[0], float(a[1]))
     elif c == "polar": polar(a[0], float(a[1]))
-    elif c == "energy": energy(a[0])
+    elif c == "energy": energy(a[0], a[1] if len(a) > 1 else "stochastic")
+    elif c == "fixed": fixed(a[0])
     elif c == "compare": compare(a[0], a[1], a[2])
     elif c == "same": same(a[0], a[1], int(a[2]) if len(a) > 2 else 0)
     elif c == "gyration": gyration(a[0])

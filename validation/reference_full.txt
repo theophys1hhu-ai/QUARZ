@@ -367,8 +367,13 @@ out_opmd_nat vs out_opmd_p2n: iterations [0, 2, 4], max rel diff 0.00e+00
   chi_0 = 0.1: <gamma>(t)/gamma_ODE - 1 over 101 steps (gamma 1e+05 -> 6.834e+04): max 2.72e-03; energy balance (photons - electron loss)/loss = 7.4e-09
   chi_0 = 0.1, inversion vs rejection: final <gamma> 68342 vs 68010.4 (+0.85 sigma), gamma_rms 12212 vs 12383
   chi_0 = 1 (strong straggling), dt = 1 vs 0.25 (sub-cycled push): final <gamma> 15529.6 vs 15813.7 (-1.01 sigma), gamma_rms 8894.5 vs 8962.6
+ (d') deterministic radiation reaction (qed.model) vs its ODE (synchrotron loss with g(chi); classical: g = 1):
+  qed.model = continuous, chi_0 = 0.1: <gamma>(t)/gamma_ODE - 1 over 101 steps (gamma 1e+05 -> 6.824e+04): max 1.35e-07; gamma_rms 5.7e-03
+  qed.model = classical, chi_0 = 0.1: <gamma>(t)/gamma_ODE - 1 over 101 steps (gamma 1e+05 -> 5.99e+04): max 5.03e-07; gamma_rms 7.6e-03
+  qed.model = continuous, chi_0 = 1: <gamma>(t)/gamma_ODE - 1 over 21 steps (gamma 1e+05 -> 1.68e+04): max 1.25e-05; gamma_rms 7.7e-03
  (e) the external field alone (no QED): rotation of the momentum, gamma = 1e4, B = 10:
   no QED, gamma = 1e+04, B = 10, 100 steps: rotation angle / (B t / gamma) - 1 = 8.4e-08; |p| change 0.0e+00
+  momentum_push = 0, spin_precession = 0 in B (no QED), 50 steps: max |p change| 0.0e+00, max |s change| 0.0e+00 (positions drift: 2.5e-09)
  (f) restart, threads, MPI (expected: photon records, qed.txt, particles and spins bit-identical):
    restart (mixed states, inversion sampler):
   steps 4-9: photon records (2879) identical, qed.txt identical

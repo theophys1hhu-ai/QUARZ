@@ -1,0 +1,52 @@
+# PWFA with photon emission of a 10 TeV witness (QED module paper, section VI, Figs. 6-8).
+# Uniform plasma n0 = 2e18 cm^-3 (k_p^-1 = 3.76 um, 1/omega_p = 12.5 fs). Units: k_p^-1, 1/omega_p.
+#   driver:  500 pC electrons, gamma = 1e5, sigma_xi = 1, sigma_r = 0.5 (peak n_b = 7.45 n0), 1 % energy
+#            spread, at xi = 6 (3 behind the head of the box)
+#   witness: 35 pC electrons, 10 TeV (gamma = 1.957e7), sigma_xi = sigma_r = 0.25 (n_b = 8.34 n0), 0.3 %
+#            energy spread, normalized emittance 10 um = 2.66 k_p^-1, at xi = 11.5 (5.5 behind the driver)
+# (the paper's x = 12 and 6.5 in the forward coordinate of an 18 k_p^-1 box). The witness sits near the rear
+# of the bubble: chi = eta gamma F ~ r with eta = 1.03e-7, i.e. chi ~ 0.25 at r = sigma_r. Time t = 2700
+# (the paper's omega_0 t = 2700; Fig. 6 at t = 1400: field output every 140 steps).
+# Three runs, as in the paper:
+#   base:        ../../build/quarz pwfa_benchmark.in witness.qed=0 output.dir=out_pwfa_base
+#   synchrotron: ../../build/quarz pwfa_benchmark.in qed.model=continuous output.dir=out_pwfa_sync
+#   QED:         ../../build/quarz pwfa_benchmark.in                                (out_pwfa_qed)
+# Expected (paper): the wake accelerates the witness by ~1.2 GeV (base); radiation costs ~2 TeV (21 %) with
+# the same mean loss for synchrotron (with g(chi)) and QED, but QED spreads the witness energies over
+# 1 ... 10 TeV and emits photons up to ~8 TeV. The driver radiates < 1 % (QED off for it).
+# Run time: ~1-2 min per run on 2 cores. Analysis: python3 analyze.py benchmark pwfa_benchmark.in out_pwfa_base out_pwfa_sync out_pwfa_qed
+units.n0_cm3 = 2e18
+grid.type = regions
+grid.rmax = 8
+grid.regions = 0.6:0.005 2:0.02 8:0.08
+grid.max_ratio = 1.05
+xi.min = 3
+xi.max = 14
+xi.step = 0.02
+time.dt = 10
+time.steps = 270
+plasma.species = electrons
+electrons.ppc = 4
+beams = driver witness
+driver.n0 = 7.45
+driver.gamma = 1e5
+driver.espread = 0.01
+driver.sigma_r = 0.5
+driver.sigma_xi = 1
+driver.xi0 = 6
+driver.emit_n = 1
+driver.nparticles = 200000
+driver.scattering = 0
+witness.n0 = 8.34
+witness.gamma = 1.957e7
+witness.espread = 0.003
+witness.sigma_r = 0.25
+witness.sigma_xi = 0.25
+witness.xi0 = 11.5
+witness.emit_n = 2.66
+witness.nparticles = 100000
+witness.scattering = 0      # (no Coulomb scattering, as in the codes of the paper)
+witness.qed = 1
+output.dir = out_pwfa_qed
+output.every = 140
+output.beam_every = 270

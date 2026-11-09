@@ -666,9 +666,18 @@ sec26() {
     qrun out_qed_d1 time.steps=20 qed.photon_output=0
     qrun out_qed_d4 time.steps=80 time.dt=0.25 qed.photon_output=0
     $C compare out_qed_d1 out_qed_d4 "chi_0 = 1 (strong straggling), dt = 1 vs 0.25 (sub-cycled push)"
+    echo " (d') deterministic radiation reaction (qed.model) vs its ODE (synchrotron loss with g(chi); classical: g = 1):"
+    qrun out_qed_ec time.steps=100 "fields.external_B=13.7614 0 0" qed.model=continuous
+    $C energy out_qed_ec continuous
+    qrun out_qed_ecl time.steps=100 "fields.external_B=13.7614 0 0" qed.model=classical
+    $C energy out_qed_ecl classical
+    qrun out_qed_ec1 time.steps=20 qed.model=continuous
+    $C energy out_qed_ec1 continuous
     echo " (e) the external field alone (no QED): rotation of the momentum, gamma = 1e4, B = 10:"
     qrun out_qed_gy time.steps=100 e.qed=0 e.gamma=1e4 "fields.external_B=10 0 0" output.beam_every=100
     $C gyration out_qed_gy
+    qrun out_qed_fx time.steps=50 e.qed=0 e.momentum_push=0 e.spin_precession=0 "e.spin=0 1 0" output.beam_every=50
+    $C fixed out_qed_fx
     echo " (f) restart, threads, MPI (expected: photon records, qed.txt, particles and spins bit-identical):"
     local M="qed.in time.steps=10 output.beam_every=5 e.nparticles=400"
     for c in mixed:inversion pure:rejection; do

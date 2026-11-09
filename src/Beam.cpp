@@ -50,6 +50,9 @@ Beam::Beam(const Config& cfg, const std::string& name, const RadialGrid& grid, c
         for (int c = 0; c < 3; ++c) (f == 0 ? ext_E_ : ext_B_)[c] = std::stod(v[c]);
         ext_on_ = true;
     }
+    // ---- testing switches: no momentum change by the fields, no spin precession
+    push_momentum_ = cfg.get_bool(name + ".momentum_push", true);
+    precession_ = cfg.get_bool(name + ".spin_precession", true);
     // ---- spin (Thomas-BMT), <beam>.spin = sx sy sz (initial direction)
     {
         const auto sv = cfg.get_list(name + ".spin");
@@ -127,6 +130,11 @@ Beam::Beam(const Config& cfg, const std::string& name, const RadialGrid& grid, c
         qed_.max_substeps = cfg.get_int("qed.max_substeps", 1000);
         if (!(qed_.p_max > 0 && qed_.p_max <= 1) || qed_.max_substeps < 1)
             throw std::runtime_error("qed: need 0 < qed.max_prob <= 1 and qed.max_substeps >= 1");
+        const std::string model = cfg.get_string("qed.model", "stochastic");
+        if (model == "stochastic") qed_.model = qed::STOCHASTIC;
+        else if (model == "continuous") qed_.model = qed::CONTINUOUS;
+        else if (model == "classical") qed_.model = qed::CLASSICAL;
+        else throw std::runtime_error("qed.model must be stochastic|continuous|classical");
         qed_.recoil = !cfg.get_bool("qed.no_recoil", false);          // testing: fixed chi
         qed_.spin_change = !cfg.get_bool("qed.fixed_spin", false);    // testing: fixed spin
         qed_seed_ = static_cast<uint64_t>(cfg.get_int("qed.seed", 1)) * 0x2545f4914f6cdd1dULL ^ std::hash<std::string>{}(name);
@@ -890,6 +898,7 @@ void Beam::advance(const View3D& fld, Real dt_kick, Real dt, bool move, const Vi
     const Real an = anom_;
     auto sx = sx_; auto sy = sy_; auto sz = sz_;
     const bool ext = ext_on_;
+    const bool push_mom = push_momentum_, precess = precession_;
     const push::V3 Eext{ext_E_[0], ext_E_[1], ext_E_[2]}, Bext{ext_B_[0], ext_B_[1], ext_B_[2]};
     // photon emission: parameters and tables, optical depth, record buffer, random key of the step
     const bool qed = qed_on_ && move;
@@ -966,6 +975,10 @@ void Beam::advance(const View3D& fld, Real dt_kick, Real dt, bool move, const Vi
         // momentum kick over tau with the fields E, B (and the laser force Fp): the selected pusher,
         // Strang-split around the Lorentz push, then the spin rotation at the mean momentum
         auto kick = [&](push::V3& u, const push::V3& E, const push::V3& B, const push::V3& Fp, Real tau) {
+            if (!push_mom) {   // <beam>.momentum_push = 0 (testing): the fields do not change the momentum
+                if (spin && precess) rotate_spin(E, B, u, tau);
+                return;
+            }
             const push::V3 uold = u;
             const Real h = Real(0.5) * qm * tau;
             u = u + (Real(0.5) * tau) * Fp;
@@ -980,7 +993,7 @@ void Beam::advance(const View3D& fld, Real dt_kick, Real dt, bool move, const Vi
                 }
             }
             u = u + (Real(0.5) * tau) * Fp;
-            if (spin) rotate_spin(E, B, Real(0.5) * (uold + u), tau);
+            if (spin && precess) rotate_spin(E, B, Real(0.5) * (uold + u), tau);
         };
 
         const Real X0 = x(i), Y0 = y(i);
@@ -991,9 +1004,9 @@ void Beam::advance(const View3D& fld, Real dt_kick, Real dt, bool move, const Vi
         const push::V3 Fp0 = ponderomotive(at, u);
 
         if (!move) {   // explicit kick only (leapfrog start-up)
-            if (spin) rotate_spin(E, B, u, dt_kick);
+            if (spin && precess) rotate_spin(E, B, u, dt_kick);
             const Real g0 = Kokkos::sqrt(Real(1) + push::dot(u, u));
-            u = u + (qm * dt_kick) * (E + push::cross((Real(1) / g0) * u, B)) + dt_kick * Fp0;
+            if (push_mom) u = u + (qm * dt_kick) * (E + push::cross((Real(1) / g0) * u, B)) + dt_kick * Fp0;
             px(i) = u.x; py(i) = u.y; pz(i) = u.z;
             return;
         }
@@ -1148,6 +1161,11 @@ void Beam::set_qed_tables(const qed::BesselTable& b, const qed::RateTable& r, co
 std::string Beam::qed_description() const {
     if (!qed_on_) return "";
     std::ostringstream o;
+    if (qed_.model != qed::STOCHASTIC) {
+        o << "radiation reaction, deterministic (qed.model = " << (qed_.model == qed::CONTINUOUS ? "continuous: synchrotron loss x g(chi)" : "classical: synchrotron loss, g = 1")
+          << "), eta = hbar omega_p / m c^2 = " << qed_.eta << ", no photons, no radiative spin change";
+        return o.str();
+    }
     o << "photon emission (nonlinear Compton, LCFA): sampler " << (qed_.sampler == qed::INVERSION ? "inversion" : "rejection")
       << ", spin " << (!spin_ ? "averaged (no <beam>.spin)" : qed_.spin_model == qed::MIXED ? "mixed states" : "pure states")
       << ", eta = hbar omega_p / m c^2 = " << qed_.eta << ", sub-steps with P <= " << qed_.p_max << " (at most "

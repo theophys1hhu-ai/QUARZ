@@ -36,6 +36,7 @@ e.passive = 1
 e.scattering = 0
 e.qed = 1
 qed.no_recoil = 1
+e.momentum_push = 0      # momentum fixed as in the paper (the field only sets chi)
 qed.fixed_spin = 1
 output.dir = out_pol
 output.every = 0
