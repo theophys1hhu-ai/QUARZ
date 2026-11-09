@@ -1,0 +1,41 @@
+# Polarization of the emitted photons (QED module paper, Fig. 5): mean Stokes vector of the photons
+# emitted by electrons of fixed energy (qed.no_recoil) and fixed spin (qed.fixed_spin) in a constant
+# B = B_x = 0.41492, i.e. chi = gamma / 1e6. Scan the energy and the spin (s2 = <S, e2>, e2 = +x):
+#   ../../build/quarz photon_polarization.in e.gamma=3e6 output.dir=out_pol_g3e6_s0
+#   ../../build/quarz photon_polarization.in e.gamma=3e6 "e.spin=1 0 0" output.dir=out_pol_g3e6_sp
+#   ../../build/quarz photon_polarization.in e.gamma=3e6 "e.spin=-1 0 0" output.dir=out_pol_g3e6_sm
+# (no e.spin: spin averaged, s2 = 0). Expected, eq. 22 of the paper:
+#   <xi_3> = int (K_2/3 - u/(1-u) K_1/3 s2) du / int (w + g s2) du   (linear polarization along e1 / e2),
+#   <xi_1> = <xi_2> = 0 for a spin along the field.
+# xi_3 of every photon is in photons_e.bin (columns xi1 xi2 xi3; mixed states: expectation values).
+# Analysis: python3 analyze.py polarization photon_polarization.in out_pol_g3e6_sp
+units.n0_cm3 = 1.1e21
+grid.type = uniform
+grid.rmax = 4
+grid.dr = 0.2
+xi.min = 0
+xi.max = 1
+xi.step = 0.05
+time.dt = 10
+time.steps = 100
+plasma.species = ions
+ions.charge = 1
+ions.mass = 1836
+ions.mobile = 0
+plasma.density(x,y,z) = "0"
+fields.external_B = 0.41492 0 0
+beams = e
+e.n0 = 1e-9
+e.gamma = 3e6
+e.sigma_r = 0.01
+e.sigma_xi = 0.01
+e.xi0 = 0.5
+e.emit_n = 0
+e.nparticles = 10000
+e.passive = 1
+e.scattering = 0
+e.qed = 1
+qed.no_recoil = 1
+qed.fixed_spin = 1
+output.dir = out_pol
+output.every = 0

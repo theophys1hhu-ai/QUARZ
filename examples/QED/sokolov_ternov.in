@@ -1,0 +1,43 @@
+# Radiative polarization (Sokolov-Ternov) at fixed energy (QED module paper, Fig. 4): electrons with
+# gamma = 1e7 and the spin along the field (s2 = +1) in a constant B = B_x at chi = 1, momentum kept
+# fixed (qed.no_recoil = 1), the spin free. The mean spin relaxes as eq. 14,
+#   <s2>(t) = (S0 - S_inf) exp(C0 (Xi - W) t) + S_inf,   S_inf = -0.8375 at chi = 1 (-8 sqrt(3)/15 = -0.924 for chi -> 0),
+# with 1/(C0 (W - Xi)) = 7.8e4 here (omega_0 t ~ 1e5 ... 5e5, as in the paper).
+# chi = 0.1 relaxes ~90 times slower (1/(C0 (W - Xi)) = 6.8e6 at gamma = 1e7). The sideways drift over a
+# relaxation time shrinks with gamma, so use gamma = 1e9 (relaxation time 6.8e8) and a wide box:
+#   e.gamma=1e9 "fields.external_B=4.1492e-5 0 0" time.dt=2e6 time.steps=1000 grid.rmax=1e5 grid.dr=5000
+# Spin model and sampler: qed.spin_model = mixed | pure, qed.sampler = inversion | rejection.
+# The photons are not written (qed.photon_output = 0: ~3e8 photons); qed.txt still counts them.
+# The field turns the momenta by B t / gamma = 2.5e-3: the bunch moves ~750 c/omega_0 sideways (large box).
+# Output: spin.txt (<s_x> = <s2>). Analysis: python3 analyze.py spin sokolov_ternov.in out_sokolov_ternov
+units.n0_cm3 = 1.1e21
+grid.type = uniform
+grid.rmax = 1000
+grid.dr = 20
+xi.min = 0
+xi.max = 3
+xi.step = 0.05
+time.dt = 1000
+time.steps = 600
+plasma.species = ions
+ions.charge = 1
+ions.mass = 1836
+ions.mobile = 0
+plasma.density(x,y,z) = "0"
+fields.external_B = 0.041492 0 0
+beams = e
+e.n0 = 1e-9
+e.gamma = 1e7
+e.sigma_r = 0.01
+e.sigma_xi = 0.01
+e.xi0 = 0.5
+e.emit_n = 0
+e.nparticles = 2000
+e.passive = 1
+e.scattering = 0
+e.qed = 1
+e.spin = 1 0 0
+qed.no_recoil = 1
+qed.photon_output = 0
+output.dir = out_sokolov_ternov
+output.every = 0

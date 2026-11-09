@@ -1,0 +1,41 @@
+# Photon spectrum at fixed chi (QED module paper, Fig. 2): an electron bunch with gamma = 1e7 crosses a
+# constant transverse field B = B_x; qed.no_recoil = 1 keeps the momentum (and so chi) fixed, so the
+# emitted photons sample the instantaneous spectrum dN/(dt du) = C0 w(u, chi), u = photon energy /
+# electron energy, C0 = alpha / (sqrt(3) pi eta gamma).
+# Units: n0 = 1.1e21 cm^-3 (lengths in c/omega_0 of a 1 um laser), eta = 2.41e-6, chi = eta gamma B:
+#   chi = 0.1:  fields.external_B = 0.0041492 0 0
+#   chi = 1:    fields.external_B = 0.041492 0 0      (this deck)
+#   chi = 10:   fields.external_B = 0.41492 0 0
+# e.g.  ../../build/quarz spectrum.in "fields.external_B=0.41492 0 0" output.dir=out_spectrum_chi10
+# Expected number of photons: N_e T C0 W(chi) (W = int w du = 5.63 at chi = 1: ~3 per electron here).
+# The spin enters through w + g s2; without e.spin the spin-averaged rate is used (spin_dependence.in).
+# Analysis: python3 analyze.py spectrum spectrum.in out_spectrum
+units.n0_cm3 = 1.1e21
+grid.type = uniform
+grid.rmax = 4
+grid.dr = 0.2
+xi.min = 0
+xi.max = 1
+xi.step = 0.05
+time.dt = 100
+time.steps = 100
+plasma.species = ions
+ions.charge = 1
+ions.mass = 1836
+ions.mobile = 0
+plasma.density(x,y,z) = "0"
+fields.external_B = 0.041492 0 0
+beams = e
+e.n0 = 1e-9
+e.gamma = 1e7
+e.sigma_r = 0.01
+e.sigma_xi = 0.01
+e.xi0 = 0.5
+e.emit_n = 0
+e.nparticles = 20000
+e.passive = 1
+e.scattering = 0
+e.qed = 1
+qed.no_recoil = 1
+output.dir = out_spectrum
+output.every = 0

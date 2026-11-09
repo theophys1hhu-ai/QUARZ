@@ -1,0 +1,44 @@
+# Larmor motion with photon emission (QED module paper, Fig. 1 left): a point-like electron bunch
+# (gamma = 1e5 along z) with transverse momentum p_perp = 40 m c gyrates in a constant longitudinal
+# field B = 10 e_z on a helix of radius p_perp / B = 4 around the axis while it radiates.
+# Units: n0 = 1.1e21 cm^-3 (critical density of a 1 um laser), so omega_p = omega_0 and lengths are
+# in c/omega_0: eta = hbar omega_0 / m c^2 = 2.41e-6 and chi = eta p_perp B = 0.00096.
+# Expected: gamma(t) follows d gamma/dt = -(2 alpha / 3 eta) chi^2 g(chi) (classical synchrotron loss
+# with the quantum correction g, ~1 here): 1e5 -> ~99810 at t = 1e5; the orbit stays a circle.
+# Output: beams.txt (gamma_mean vs t), beam dumps every 10 steps (every 50th particle: the orbit in x-y),
+# photons_e.bin.
+# Analysis: python3 analyze.py larmor larmor.in out_larmor
+units.n0_cm3 = 1.1e21
+modes = 1
+grid.type = uniform
+grid.rmax = 8
+grid.dr = 0.1
+xi.min = 0
+xi.max = 1
+xi.step = 0.05
+time.dt = 100
+time.steps = 1000
+plasma.species = ions
+ions.charge = 1
+ions.mass = 1836
+ions.mobile = 0
+plasma.density(x,y,z) = "0"
+fields.external_B = 0 0 10
+beams = e
+e.n0 = 1e-9
+e.gamma = 1e5
+e.sigma_r = 1e-4
+e.sigma_xi = 1e-3
+e.xi0 = 0.5
+e.emit_n = 0
+e.x0 = 4
+e.yp0 = 4e-4
+e.nparticles = 1000
+e.passive = 1
+e.scattering = 0
+e.qed = 1
+# e.spin = 0 0 1            # optional: spin along the field
+output.dir = out_larmor
+output.every = 0
+output.beam_every = 10
+output.particle_stride = 50

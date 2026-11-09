@@ -1,0 +1,41 @@
+# Spin dependence of the emission (QED module paper, Fig. 3): as spectrum.in (gamma = 1e7, chi = 1, no
+# recoil), with the spin of all electrons fixed parallel or antiparallel to the field (qed.fixed_spin).
+# For electrons moving along z in B = B_x, e2 = e_v x e1 points along +x, so e.spin = 1 0 0 is s2 = +1.
+# Run both orientations:
+#   ../../build/quarz spin_dependence.in "e.spin=1 0 0"  output.dir=out_spin_plus
+#   ../../build/quarz spin_dependence.in "e.spin=-1 0 0" output.dir=out_spin_minus
+# Expected: dN+/du - dN-/du = 2 C0 g(u, chi) N_e T with g = -u K_1/3(y) (fewer photons for the spin along
+# the field); total rates in the ratio (W + G)/(W - G) = 0.913 at chi = 1. Photon energies in GeV:
+# u gamma 0.511e-3 (u = 1: 5.1 TeV).
+# Analysis: python3 analyze.py spindiff spin_dependence.in out_spin_plus out_spin_minus
+units.n0_cm3 = 1.1e21
+grid.type = uniform
+grid.rmax = 4
+grid.dr = 0.2
+xi.min = 0
+xi.max = 1
+xi.step = 0.05
+time.dt = 100
+time.steps = 100
+plasma.species = ions
+ions.charge = 1
+ions.mass = 1836
+ions.mobile = 0
+plasma.density(x,y,z) = "0"
+fields.external_B = 0.041492 0 0
+beams = e
+e.n0 = 1e-9
+e.gamma = 1e7
+e.sigma_r = 0.01
+e.sigma_xi = 0.01
+e.xi0 = 0.5
+e.emit_n = 0
+e.nparticles = 20000
+e.passive = 1
+e.scattering = 0
+e.qed = 1
+e.spin = 1 0 0
+qed.no_recoil = 1
+qed.fixed_spin = 1
+output.dir = out_spin_plus
+output.every = 0

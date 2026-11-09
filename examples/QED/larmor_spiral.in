@@ -1,0 +1,41 @@
+# Larmor motion with strong radiation losses (QED module paper, Fig. 1 right): as larmor.in, but
+# p_perp = 200 m c in B = 50 e_z (radius 4 again), chi_0 = eta p_perp B = 0.024. The electrons lose
+# half of their energy within t = 1e5 and spiral inwards (the radius p_perp / B shrinks with p_perp).
+# Expected: gamma 1e5 -> ~4.8e4 at t = 1e5 (synchrotron loss with g(chi), see larmor.in); the
+# stochastic emission spreads the energies (gamma_rms ~ 5000, beams.txt), and since the loss rate
+# P ~ gamma^2 g is convex, <P(gamma)> > P(<gamma>): <gamma> ends ~1 % below the deterministic ODE.
+# The orbit drifts slightly backwards in the box (1 - v_z = (1 + p_perp^2)/2 gamma^2 grows): xi up to ~1.
+# Analysis: python3 analyze.py larmor larmor_spiral.in out_larmor_spiral
+units.n0_cm3 = 1.1e21
+modes = 1
+grid.type = uniform
+grid.rmax = 8
+grid.dr = 0.1
+xi.min = 0
+xi.max = 3
+xi.step = 0.05
+time.dt = 50
+time.steps = 2000
+plasma.species = ions
+ions.charge = 1
+ions.mass = 1836
+ions.mobile = 0
+plasma.density(x,y,z) = "0"
+fields.external_B = 0 0 50
+beams = e
+e.n0 = 1e-9
+e.gamma = 1e5
+e.sigma_r = 1e-4
+e.sigma_xi = 1e-3
+e.xi0 = 0.5
+e.emit_n = 0
+e.x0 = 4
+e.yp0 = 2e-3
+e.nparticles = 1000
+e.passive = 1
+e.scattering = 0
+e.qed = 1
+output.dir = out_larmor_spiral
+output.every = 0
+output.beam_every = 4
+output.particle_stride = 50

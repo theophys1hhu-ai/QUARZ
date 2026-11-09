@@ -1545,6 +1545,10 @@ focusing gradient at r = 0.01 is 0.88 instead of 0.5.
 ## 8. Examples
 
 - `examples/blowout_basic.in`: single quasi-static solve of a blowout.
+- `examples/QED/`: photon emission (strong-field QED) in constant fields: Larmor motion with radiation
+  losses, photon spectra at fixed χ, spin dependence, Sokolov–Ternov polarization, photon polarization
+  (the single-particle simulations of the QED module paper), with `analyze.py` for the comparison with
+  the theory; see `examples/QED/README.md`.
 - `examples/pwfa_ion_motion.in`: driver plus a strongly pinched,
   low-emittance witness with mobile ions (100 steps, a few minutes on
   2 cores).
