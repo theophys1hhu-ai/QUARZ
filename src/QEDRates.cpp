@@ -27,6 +27,17 @@ Integrals integrals(double chi) {
     I.K = u_integral([&](double u) { return coefficients(u, chi).f2; });
     I.Wu = u_integral([&](double u) { return u * coefficients(u, chi).w; });
     I.Gu = u_integral([&](double u) { return u * coefficients(u, chi).g; });
+    auto spin_kernel = [&](double u, int which) {   // u^2/(1-u) times K_{2/3}, K_{1/3} or IntK_{1/3}
+        if (u >= 1) return 0.0;
+        const double y = y_arg(u, chi);
+        if (y >= Y_MAX) return 0.0;
+        double K13, K23, IK13;
+        bessel::synchrotron_functions(y, K13, K23, IK13);
+        return u * u / (1 - u) * (which == 0 ? K23 : which == 1 ? K13 : IK13);
+    };
+    I.SB = u_integral([&](double u) { return spin_kernel(u, 0); });
+    I.SA = u_integral([&](double u) { return spin_kernel(u, 1); });
+    I.SL = u_integral([&](double u) { return spin_kernel(u, 2); });
     return I;
 }
 
@@ -85,11 +96,12 @@ BesselTable make_bessel_table(double y_min, double y_max, double ppd) {
 
 RateTable make_rate_table(double chi_min, double chi_max, double ppd) {
     RateTable T;
-    T.t = LogTable::build(chi_min, chi_max, ppd, 7, [](double chi, double* o) {
+    T.t = LogTable::build(chi_min, chi_max, ppd, RateTable::RATE_COLUMNS, [](double chi, double* o) {
         const Integrals I = integrals(chi);
         o[0] = I.W; o[1] = I.G; o[2] = I.Xi; o[3] = I.K; o[4] = I.Wu; o[5] = I.Gu;
         o[6] = RMAX_SAFETY * max_rate_r(chi);
-    }, std::vector<int>(7, LogTable::Log), "qed.rate_table");
+        o[7] = I.SB; o[8] = I.SA; o[9] = I.SL;
+    }, std::vector<int>(RateTable::RATE_COLUMNS, LogTable::Log), "qed.rate_table");
     return T;
 }
 
@@ -120,7 +132,7 @@ std::string check_meta(const char* kind, const std::map<std::string, std::string
     return "";
 }
 const std::vector<std::string> BESSEL_LABELS{"exp(y)K_1/3", "exp(y)K_2/3", "exp(y)IntK_1/3"};
-const std::vector<std::string> RATE_LABELS{"W", "G", "Xi", "K", "Wu", "Gu", "Rmax"};
+const std::vector<std::string> RATE_LABELS{"W", "G", "Xi", "K", "Wu", "Gu", "Rmax", "SB", "SA", "SL"};
 
 template <class Tab, class Load, class Build>
 Tab load_or_build(const char* kind, const std::string& path, double lo, double hi, double ppd, bool write,
@@ -193,7 +205,7 @@ RateTable load_rate_table(const std::string& path) {
     std::map<std::string, std::string> m;
     const LogTable t = LogTable::load(path, nullptr, &m);
     const std::string why = check_meta("qed.rate", m);
-    if (!why.empty() || t.ncomp() != 7) throw std::runtime_error("load_rate_table: " + path + ": " + (why.empty() ? "7 columns expected" : why));
+    if (!why.empty() || t.ncomp() != RateTable::RATE_COLUMNS) throw std::runtime_error("load_rate_table: " + path + ": " + (why.empty() ? "10 columns expected" : why));
     return rate_from(t);
 }
 
@@ -204,7 +216,7 @@ BesselTable bessel_table(const std::string& path, double y_min, double y_max, do
 }
 RateTable rate_table(const std::string& path, double chi_min, double chi_max, double ppd, bool write, std::string* status) {
     return load_or_build<RateTable>("qed.rate", path, chi_min, chi_max, ppd, write, status,
-        [&](const LogTable& t) { if (t.ncomp() != 7) throw std::runtime_error("7 columns expected"); return rate_from(t); },
+        [&](const LogTable& t) { if (t.ncomp() != RateTable::RATE_COLUMNS) throw std::runtime_error("10 columns expected"); return rate_from(t); },
         [&] { return make_rate_table(chi_min, chi_max, ppd); }, save_rate_table);
 }
 

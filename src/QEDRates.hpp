@@ -233,22 +233,24 @@ KOKKOS_INLINE_FUNCTION Coef coefficients(Real u, Real chi, const BesselTable& T)
 // RMAX_SAFETY max_r(...) and the evaluation takes the maximum with the exact r = 0 value.
 struct RateValues {
     Real W = 0, G = 0, Xi = 0, K = 0, Wu = 0, Gu = 0, Rmax = 0;
+    Real SB = 0, SA = 0, SL = 0;   // spin relaxation integrals (Integrals below)
 };
 // on log chi in [chi_min, chi_max], all columns logarithmic (power laws: W ~ chi, G ~ chi^2, ... for
 // small chi). Outside the range: power-law extrapolation of the end interval (approximate).
 struct RateTable {
+    static constexpr int RATE_COLUMNS = 10;
     LogTable t;
     KOKKOS_INLINE_FUNCTION RateValues operator()(Real chi) const {
         RateValues r;
         if (!(chi > Real(0))) return r;
-        Real v[7];
+        Real v[RATE_COLUMNS];
         t.eval(chi, v);
         return from_columns(v, chi);
     }
     // the same on the host (operator() reads device memory: kernels only on a GPU)
     RateValues host(double chi) const {
         if (!(chi > 0)) return RateValues();
-        double v[7];
+        double v[RATE_COLUMNS];
         t.eval_host(chi, v);
         return from_columns(v, chi);
     }
@@ -257,6 +259,7 @@ struct RateTable {
         r.W = v[0]; r.G = v[1]; r.Xi = v[2]; r.K = v[3]; r.Wu = v[4]; r.Gu = v[5];
         const Real R0 = Real(RMAX_SAFETY) * rate_r(Real(0), chi, Real(0));
         r.Rmax = v[6] > R0 ? v[6] : R0;
+        r.SB = v[7]; r.SA = v[8]; r.SL = v[9];
         return r;
     }
 };
@@ -265,7 +268,7 @@ RateTable make_rate_table(double chi_min = 1e-5, double chi_max = 1e4, double po
 // ---- table files (plain text, LogTable format, "*.lut" by convention; exact round trip).
 // The files carry meta entries: table (qed.bessel / qed.rate), version (TABLE_VERSION, raised whenever
 // the tabulated functions change), the effective points_per_decade, and for the rate table rmax_safety.
-constexpr int TABLE_VERSION = 1;
+constexpr int TABLE_VERSION = 2;   // 2: spin relaxation columns SB, SA, SL in the rate table
 void save_bessel_table(const BesselTable& T, const std::string& path);
 void save_rate_table(const RateTable& T, const std::string& path);
 // throw if the file is not a table of that kind and version
@@ -288,6 +291,12 @@ struct Integrals {
     double K = 0;    // int -u/(1-u) K_{1/3} du             (coefficient f2 of e2 in p_f)
     double Wu = 0;   // int u w du                   radiated power: P = eps_e C0 (Wu + Gu <S, e2>)
     double Gu = 0;   // int u g du
+    // Mean spin evolution (average of the emission and no-emission spin changes), in the basis (e1, e2, e_v):
+    //   d s1/dt = -C0 SB s1,   d s2/dt = -C0 (SB s2 + SA),   d s_v/dt = -C0 SL s_v
+    // SB = W - Xi, SA = G - K, SL = SB - int fv du, integrated directly (the differences cancel to O(chi^3)):
+    double SB = 0;   // int u^2/(1-u) K_{2/3} du      -> (15 pi / 8) chi^3 for chi -> 0
+    double SA = 0;   // int u^2/(1-u) K_{1/3} du      -> sqrt(3) pi chi^3      (S_inf = -SA/SB -> -8 sqrt(3)/15)
+    double SL = 0;   // int u^2/(1-u) IntK_{1/3} du   -> (35 pi / 24) chi^3
 };
 // relative accuracy ~1e-12 (adaptive Gauss-Kronrod in r = u^{1/3})
 Integrals integrals(double chi);

@@ -346,7 +346,13 @@ locally-constant-field approximation, with the spin of the lepton and the polari
   come from a hash of the particle state (restarts and MPI runs are bit-identical).
 - **Deterministic radiation reaction** (`qed.model = continuous`): dγ/dt = −(α/√3πη) ∫u(w + g s₂)du, the
   mean power of the stochastic emission (synchrotron loss × g(χ)), the lepton keeping its direction; no
-  photons and no radiative spin change (the paper's "synchrotron" runs). `classical`: g = 1.
+  photons (the paper's "synchrotron" runs). `classical`: g = 1. With `<beam>.spin` the spin follows the
+  mean of the stochastic spin changes (deterministic radiative polarization), which is linear in S:
+  ds₁/dt = −C₀ S_B s₁, ds₂/dt = −C₀(S_B s₂ + S_A), ds_v/dt = −C₀ S_L s_v in the basis (e₁, e₂, e_v), with
+  S_B = ∫u²/(1−u) K₂/₃ du = W − Ξ, S_A = ∫u²/(1−u) K₁/₃ du = G − K, S_L = ∫u²/(1−u) IntK₁/₃ du (tabulated;
+  s₂ is eq. 14 of the QED module, equilibrium −S_A/S_B), solved exactly in each sub-step. `classical`
+  uses the χ → 0 limits S_B = 15πχ³/8, S_A = √3πχ³, S_L = 35πχ³/24, i.e. the Sokolov–Ternov rate
+  1/τ = (5√3/8) α χ³/(ηγ) and limit −8√3/15. `qed.fixed_spin = 1` switches it off.
 - Not included: pair creation (Breit–Wheeler), emission in the laser field (the envelope has no
   oscillating field), plasma electrons. `pusher.beam = imp_rr` (classical radiation reaction) cannot be
   combined with `<beam>.qed`.
@@ -872,7 +878,7 @@ The generated grid is written to `out/grid.txt` (j, r_j, h_j, V_j).
 | `qed.photon_output` | 1 | write the photon records `photons_<beam>.bin` (0: only `qed.txt`) |
 | `qed.photon_min_energy`, `<beam>.photon_min_energy` | 0 | write only the photons with an energy ≥ this (m c²); all photons are emitted and counted in `qed.txt` |
 | `qed.table_dir` | — | directory for the look-up tables (`qed_bessel.lut`, `qed_rates.lut`, `qed_spectrum.lut`): loaded if they match, otherwise built and saved (rank 0). Without it the tables are built in memory (0.2 s). |
-| `qed.model` | `stochastic` | `stochastic` (photon emission) \| `continuous` (deterministic radiation reaction with the mean power of the emission: synchrotron loss × g(χ), lepton keeps its direction, no photons, no radiative spin change) \| `classical` (the same with g = 1) |
+| `qed.model` | `stochastic` | `stochastic` (photon emission) \| `continuous` (deterministic radiation reaction with the mean power of the emission: synchrotron loss × g(χ), lepton keeps its direction, no photons; with `<beam>.spin` deterministic radiative polarization by the mean spin equation) \| `classical` (the same with g = 1 and the Sokolov–Ternov χ³ rates) |
 | `qed.no_recoil`, `qed.fixed_spin` | 0, 0 | testing: emit photons without changing the momentum (fixed χ) / the spin |
 | `<beam>.momentum_push`, `<beam>.spin_precession` | 1, 1 | testing: 0 = the fields do not change the momentum (the particles drift with fixed momentum) / no Thomas–BMT rotation |
 | `fields.external_E`, `fields.external_B` | 0 0 0 | constant external fields acting on the beams (m c ω_p/e) |
@@ -1481,6 +1487,7 @@ statistical checks flag deviations above 4σ or χ²/dof > 2):
 | Spin fixed along ±B (s₂ = ±1), χ = 1 | rate ratio 0.9125 ± 0.0040 vs (W + G)/(W − G) = 0.9128; spectrum difference vs 2C₀g: χ²/dof 0.9 |
 | Mean photon Stokes vector ξ₃ vs eq. 22, s₂ = 0, +1, −1 (χ = 1) and s₂ = 0 (χ = 10); ξ₃(u) vs eq. 21 | +1.9σ, +1.0σ, −0.3σ, +0.9σ; χ²/dof ≤ 2; ξ₁ = ξ₂ = 0 exactly |
 | Radiative polarization at fixed χ = 1 from s₂ = +1, 4.2 relaxation times, vs eq. 14 (limit −0.8375) | mixed/inversion, mixed/rejection, pure/inversion, pure/rejection: max deviation 1.4, 0.8, 2.7, 1.9σ |
+| Deterministic radiative polarization (`qed.model = continuous`, `classical`) at fixed χ = 1 from S = (0.6, −0.48, 0.64) in (e₂, e₁, e_v), 4 relaxation times, vs the mean spin equation (scipy integrals; classical: χ³ rates) | all three components to 4·10⁻¹¹ and 8·10⁻¹¹ (s₂ → −0.8165 towards −0.8375; classical −0.9041 towards −0.9238) |
 | Energy loss with recoil, χ₀ = 0.1 → 0.07 | ⟨γ⟩(t) vs the ODE dγ/dt = −P(γ) within 0.3 %; photon energy = electron energy loss to 7·10⁻⁹ (print precision); inversion vs rejection +0.85σ |
 | χ₀ = 1 (strong straggling): Δt = 1 vs 0.25 (sub-cycled push) | final ⟨γ⟩ −1.0σ, γ_rms 0.8 % (8000 particles: Δt = 0.25 vs 0.0625 +0.8σ, p_max 0.1 vs 0.01 0.0σ) |
 | Deterministic radiation reaction (`qed.model`) vs its ODE: continuous χ₀ = 0.1 and 1, classical χ₀ = 0.1 | 1.4·10⁻⁷, 1.3·10⁻⁵, 5·10⁻⁷ |

@@ -176,21 +176,20 @@ static void rate_table() {
     std::printf("    built in %.2f s (%d points)\n", tb, T.t.size());
     std::mt19937_64 rng(2);
     std::uniform_real_distribution<double> U(0, 1);
-    double e[6] = {0}, ehost = 0;
+    double e[9] = {0}, ehost = 0;
     for (int i = 0; i < 300; ++i) {
         const double chi = std::pow(10.0, -5 + 9 * U(rng));
         double W = 0;
         Kokkos::parallel_reduce("rtab", Kokkos::RangePolicy<>(0, 1), KOKKOS_LAMBDA(int, double& s) { s = T(chi).W; }, W);
         ehost = std::fmax(ehost, std::abs(T.host(chi).W / W - 1));
-        double vv[6];
-        for (int c = 0; c < 6; ++c) vv[c] = host_eval(T.t, c, chi);
+        const int col[9] = {0, 1, 2, 3, 4, 5, 7, 8, 9};   // (column 6 is Rmax)
         const Integrals I = integrals(chi);
-        const double r[6] = {I.W, I.G, I.Xi, I.K, I.Wu, I.Gu};
-        for (int c = 0; c < 6; ++c) e[c] = std::fmax(e[c], rel(vv[c], r[c]));
+        const double r[9] = {I.W, I.G, I.Xi, I.K, I.Wu, I.Gu, I.SB, I.SA, I.SL};
+        for (int c = 0; c < 9; ++c) e[c] = std::fmax(e[c], rel(host_eval(T.t, col[c], chi), r[c]));
         e[0] = std::fmax(e[0], rel(W, I.W));
     }
-    const char* names[6] = {"W", "G", "Xi", "K", "Wu", "Gu"};
-    for (int c = 0; c < 6; ++c) {
+    const char* names[9] = {"W", "G", "Xi", "K", "Wu", "Gu", "SB", "SA", "SL"};
+    for (int c = 0; c < 9; ++c) {
         char m[160];
         std::snprintf(m, sizeof m, "%-4s 300 random chi: max rel. error %.1e (< 1e-6)", names[c], e[c]);
         check(e[c] < 1e-6, m);
@@ -344,12 +343,13 @@ static void files() {
           ("bessel_table(): first call " + st1 + ", second " + st2 + ", identical").c_str());
     bessel_table(f3, 1e-6, Y_MAX, 16, false, &st3);
     std::string v = slurp(f3);
-    v.replace(v.find("# meta version 1"), 16, "# meta version 0");
+    const std::string ver = "# meta version " + std::to_string(TABLE_VERSION);
+    v.replace(v.find(ver), ver.size(), "# meta version 0");
     spit(f3, v);
     bessel_table(f3, 1e-6, Y_MAX, 32, false, &st4);
     rate_table(f3, 1e-5, 1e4, 32, false, &st5);
     std::printf("    other parameters: %s\n    old version: %s\n    other kind: %s\n", st3.c_str(), st4.c_str(), st5.c_str());
-    check(st3.find("different range or points") != std::string::npos && st4.find("table version 0") != std::string::npos &&
+    check(st3.find("different range or points") != std::string::npos && st4.find("table version 0, expected") != std::string::npos &&
           st5.find("not a qed.rate") != std::string::npos, "other parameters, old version, other kind: rebuilt (write = false: file kept)");
     std::string st6;
     std::remove("test_qed_tables_none.lut");

@@ -658,6 +658,12 @@ sec26() {
         qrun out_qed_st time.steps=100 qed.no_recoil=1 "e.spin=1 0 0" qed.photon_output=0 qed.spin_model=${c%%:*} qed.sampler=${c##*:}
         echo "   ${c%%:*} states, ${c##*:} sampler:"; $C spin out_qed_st 1
     done
+    echo " (c') deterministic radiative polarization (qed.model = continuous, classical), fixed momentum, all spin components:"
+    # (classical: chi^3 rates, 26 x faster than the quantum ones at chi = 1: shorter steps for the same ~4 relaxation times)
+    qrun out_qed_sd time.steps=100 qed.model=continuous qed.no_recoil=1 e.momentum_push=0 e.spin_precession=0 "e.spin=0.6 0.48 0.64"
+    $C spindet out_qed_sd continuous
+    qrun out_qed_sd time.steps=100 time.dt=0.04 qed.model=classical qed.no_recoil=1 e.momentum_push=0 e.spin_precession=0 "e.spin=0.6 0.48 0.64"
+    $C spindet out_qed_sd classical
     echo " (d) energy loss with recoil:"
     qrun out_qed_e time.steps=100 "fields.external_B=13.7614 0 0"
     $C energy out_qed_e

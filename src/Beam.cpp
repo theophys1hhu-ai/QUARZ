@@ -1163,7 +1163,8 @@ std::string Beam::qed_description() const {
     std::ostringstream o;
     if (qed_.model != qed::STOCHASTIC) {
         o << "radiation reaction, deterministic (qed.model = " << (qed_.model == qed::CONTINUOUS ? "continuous: synchrotron loss x g(chi)" : "classical: synchrotron loss, g = 1")
-          << "), eta = hbar omega_p / m c^2 = " << qed_.eta << ", no photons, no radiative spin change";
+          << "), eta = hbar omega_p / m c^2 = " << qed_.eta << ", no photons"
+          << (!spin_ ? "" : qed_.spin_change ? ", deterministic radiative polarization (mean spin equation)" : ", FIXED SPIN (testing)");
         return o.str();
     }
     o << "photon emission (nonlinear Compton, LCFA): sampler " << (qed_.sampler == qed::INVERSION ? "inversion" : "rejection")

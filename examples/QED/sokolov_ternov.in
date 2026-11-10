@@ -6,6 +6,8 @@
 # chi = 0.1 relaxes ~90 times slower (1/(C0 (W - Xi)) = 6.8e6), towards -0.905:
 #   "fields.external_B=0.0041492 0 0" time.dt=2e4 time.steps=1000
 # Spin model and sampler: qed.spin_model = mixed | pure, qed.sampler = inversion | rejection.
+# Deterministic counterparts (no noise): qed.model=continuous (the same curve, eq. 14) and qed.model=classical
+# (Sokolov-Ternov chi^3 rates, 26 x faster at chi = 1, limit -0.924: use time.dt=40).
 # The photons are not written (qed.photon_output = 0: ~3e8 photons); qed.txt still counts them.
 # The momentum is fixed (e.momentum_push = 0, as in the paper): the field only sets chi.
 # Output: spin.txt (<s_x> = <s2>). Analysis: python3 analyze.py spin sokolov_ternov.in out_sokolov_ternov

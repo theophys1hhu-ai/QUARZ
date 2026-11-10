@@ -344,6 +344,9 @@ out_opmd_nat vs out_opmd_p2n: iterations [0, 2], max rel diff 0.00e+00
   chi = 1, S0 = +1: <s2>(t) vs eq. 14 over 4.2 relaxation times: max |diff| 0.0442 (1.1 sigma); final -0.8048 (eq. 14: -0.8106, limit S_inf = -0.8375)
    pure states, rejection sampler:
   chi = 1, S0 = +1: <s2>(t) vs eq. 14 over 4.2 relaxation times: max |diff| 0.0500 (1.5 sigma); final -0.8000 (eq. 14: -0.8106, limit S_inf = -0.8375)
+ (c') deterministic radiative polarization (qed.model = continuous, classical), fixed momentum, all spin components:
+  qed.model = continuous, chi = 1: (s2, s1, sv) (0.600, -0.480, 0.640) -> (-0.8165, -0.0070, 0.0495) after 4.2 relaxation times; max |diff| to the mean spin equation 3.8e-11 (equilibrium s2 = -0.8375)
+  qed.model = classical, chi = 1: (s2, s1, sv) (0.600, -0.480, 0.640) -> (-0.9041, -0.0062, 0.0217) after 4.3 relaxation times; max |diff| to the mean spin equation 8.4e-11 (equilibrium s2 = -0.9238)
  (d) energy loss with recoil:
   chi_0 = 0.1: <gamma>(t)/gamma_ODE - 1 over 101 steps (gamma 1e+05 -> 6.815e+04): max 5.64e-03; energy balance (photons - electron loss)/loss = 7.4e-09
   chi_0 = 1 (strong straggling), dt = 1 vs 0.25 (sub-cycled push): final <gamma> 16896 vs 15573.9 (+2.13 sigma), gamma_rms 10261 vs 9356.6

@@ -7,6 +7,7 @@ for electrons e2 = +x (along B), so s2 = <s_x>.
 usage: qed_check.py spectrum DIR S            photon number and spectrum vs C0 (w + g S) (no recoil)
        qed_check.py spindiff DIR_plus DIR_minus   spectrum difference (S = +1) - (S = -1) vs 2 C0 g
        qed_check.py spin DIR S0               <s2>(t) vs eq. 14 (no recoil)
+       qed_check.py spindet DIR MODEL         deterministic spin relaxation (continuous | classical), 3 components
        qed_check.py polar DIR S               mean Stokes vector vs eq. 22, xi_3(u) vs eq. 21 (fixed spin)
        qed_check.py energy DIR [model]        <gamma>(t) vs the ODE d gamma/dt = -P(gamma); energy balance
                                               (model continuous | classical: deterministic, g = 1 for classical)
@@ -157,6 +158,32 @@ def spin(d, S0):
                                                                  np.max(z), sx[-1], ref[-1], Sinf, mark(np.max(z) > 4.5)))
 
 
+def spindet(d, model):
+    """deterministic radiative polarization (qed.model = continuous | classical) at fixed chi, all three
+    spin components vs  d s1/dt = -C0 SB s1,  d s2/dt = -C0 (SB s2 + SA),  d sv/dt = -C0 SL sv.
+    Electrons along z in B_x: e2 = +x, e1 = -y, e_v = z, so (s2, s1, sv) = (s_x, -s_y, s_z)."""
+    p = deck(d)
+    s = qr.read_spinlog(d + "/spin.txt")["e"]
+    t = s["t"]
+    c = p["chi"]
+    if model == "classical":
+        SB, SA, SL = 15 * np.pi / 8 * c ** 3, np.sqrt(3) * np.pi * c ** 3, 35 * np.pi / 24 * c ** 3
+    else:
+        kern = lambda f: uint(lambda u: u * u / (1 - u) * f(u))
+        SB = kern(lambda u: bessel(u, c)[1])
+        SA = kern(lambda u: bessel(u, c)[0])
+        SL = kern(lambda u: bessel(u, c)[2])
+    C0 = p["C0"]
+    sinf = -SA / SB
+    ref = {"sx": (s["sx"][0] - sinf) * np.exp(-C0 * SB * t) + sinf, "sy": s["sy"][0] * np.exp(-C0 * SB * t),
+           "sz": s["sz"][0] * np.exp(-C0 * SL * t)}
+    dev = max(np.max(np.abs(s[k] - ref[k])) for k in ref)
+    print("  qed.model = %s, chi = %.3g: (s2, s1, sv) (%.3f, %.3f, %.3f) -> (%.4f, %.4f, %.4f) after %.1f relaxation times;"
+          " max |diff| to the mean spin equation %.1e (equilibrium s2 = %.4f)%s" % (
+              model, c, s["sx"][0], -s["sy"][0], s["sz"][0], s["sx"][-1], -s["sy"][-1], s["sz"][-1], C0 * SB * t[-1], dev, sinf,
+              mark(dev > 2e-6)))
+
+
 def polar(d, S):
     p = deck(d)
     ph = qr.read_photons(d + "/photons_e.bin")
@@ -290,6 +317,7 @@ if __name__ == "__main__":
     elif c == "spindiff": spindiff(a[0], a[1])
     elif c == "spin": spin(a[0], float(a[1]))
     elif c == "polar": polar(a[0], float(a[1]))
+    elif c == "spindet": spindet(a[0], a[1])
     elif c == "energy": energy(a[0], a[1] if len(a) > 1 else "stochastic")
     elif c == "fixed": fixed(a[0])
     elif c == "subset": subset(a[0], a[1], float(a[2]))

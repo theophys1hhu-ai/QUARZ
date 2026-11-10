@@ -95,6 +95,16 @@ static void limits() {
     check(eg < 1e-4, m);
     std::snprintf(m, sizeof m, "S_inf -> -8 sqrt(3)/15 (Sokolov-Ternov): rel. %.1e (< 1e-4)", eS);
     check(eS < 1e-4, m);
+    // spin relaxation integrals: limits, and the identities with the other integrals at chi = 1
+    const double x3 = x * x * x;
+    const double eB = rel(I.SB, 15 * M_PI / 8 * x3), eA = rel(I.SA, std::sqrt(3.0) * M_PI * x3), eL = rel(I.SL, 35 * M_PI / 24 * x3);
+    std::snprintf(m, sizeof m, "SB -> 15 pi chi^3/8: %.1e, SA -> sqrt(3) pi chi^3: %.1e, SL -> 35 pi chi^3/24: %.1e (< 2e-4)", eB, eA, eL);
+    check(eB < 2e-4 && eA < 2e-4 && eL < 2e-4, m);
+    const Integrals J = integrals(1.0);
+    const double V = integrate([&](double r) { return 3 * r * r * coefficients(r * r * r, 1.0).fv; }, 0.0, 1.0);
+    const double i1 = rel(J.SB, J.W - J.Xi), i2 = rel(J.SA, J.G - J.K), i3 = rel(J.SL, J.SB - V), i4 = rel(-J.SA / J.SB, polarization_limit(1.0));
+    std::snprintf(m, sizeof m, "chi = 1: SB = W - Xi %.1e, SA = G - K %.1e, SL = SB - int fv %.1e, -SA/SB = polarization limit %.1e (< 1e-11)", i1, i2, i3, i4);
+    check(i1 < 1e-11 && i2 < 1e-11 && i3 < 1e-11 && i4 < 1e-11, m);
 }
 
 static V3 random_unit(std::mt19937_64& rng) {

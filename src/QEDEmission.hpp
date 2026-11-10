@@ -31,8 +31,8 @@ enum Sampler : int { INVERSION = 0, REJECTION = 1 };
 enum SpinModel : int { MIXED = 0, PURE = 1 };
 // stochastic: photon emission (the samplers); continuous / classical: deterministic radiation reaction,
 // d gamma/dt = -P with the mean power of the stochastic emission P = alpha/(sqrt3 pi eta) int u (w + g s2) du
-// (synchrotron loss x g(chi)), or the classical P = (2 alpha / 3 eta) chi^2 (g = 1); no photons, the spin
-// keeps only its precession
+// (synchrotron loss x g(chi)), or the classical P = (2 alpha / 3 eta) chi^2 (g = 1); no photons. The spin
+// follows the mean of the stochastic spin changes (radiative polarization, relax_spin below).
 enum Model : int { STOCHASTIC = 0, CONTINUOUS = 1, CLASSICAL = 2 };
 
 // everything the push needs: parameters and the tables (device-copyable)
@@ -162,14 +162,45 @@ KOKKOS_INLINE_FUNCTION void radiate_continuously(const Emission& Q, bool has_spi
     p = Kokkos::sqrt(g1 * g1 - Real(1)) * b.ev;
 }
 
+// Deterministic radiative polarization over a time h (qed.model = continuous | classical): the mean of the
+// spin changes with and without emission (mixed states) is linear in S,
+//   dS/dt = C0 [(Xi - W) S + (K - G) e2 + V <S, e_v> e_v],
+// i.e. in the basis (e1, e2, e_v), with the integrals SB, SA, SL of the rate table,
+//   d s1/dt = -C0 SB s1,   d s2/dt = -C0 (SB s2 + SA),   d s_v/dt = -C0 SL s_v
+// (s2 is eq. 14 of the QED module; equilibrium s2 = -SA/SB). Solved exactly for the chi of the sub-step.
+// classical: the chi -> 0 limits SB = (15 pi/8) chi^3, SA = sqrt(3) pi chi^3, SL = (35 pi/24) chi^3: the
+// Sokolov-Ternov rate 1/tau = (5 sqrt(3)/8) alpha chi^3 / (eta gamma) and limit -8 sqrt(3)/15.
+KOKKOS_INLINE_FUNCTION void relax_spin(const Emission& Q, const V3& E, const V3& B, Real h, const V3& p, V3& S) {
+    Basis b;
+    const Real chi_e = chi_basis(p, E, B, Q.charge, Q.eta, b);
+    if (!(chi_e > Real(0))) return;
+    const Real C0_h = rate_prefactor(Kokkos::sqrt(Real(1) + push::dot(p, p)), Q.eta) * h;
+    Real SB, SA, SL;
+    if (Q.model == CLASSICAL) {
+        const Real c3 = chi_e * chi_e * chi_e;
+        SB = Real(15.0 / 8.0 * 3.14159265358979323846) * c3;
+        SA = Real(1.7320508075688772935 * 3.14159265358979323846) * c3;
+        SL = Real(35.0 / 24.0 * 3.14159265358979323846) * c3;
+    } else {
+        const RateValues r = Q.rates(chi_e);
+        SB = r.SB; SA = r.SA; SL = r.SL;
+    }
+    const Real s1 = push::dot(S, b.e1), s2 = push::dot(S, b.e2), sv = push::dot(S, b.ev);
+    const Real eB = Kokkos::exp(-C0_h * SB), eL = Kokkos::exp(-C0_h * SL), s_inf = -SA / SB;
+    S = (s1 * eB) * b.e1 + ((s2 - s_inf) * eB + s_inf) * b.e2 + (sv * eL) * b.ev;
+}
+
 // QED during one sub-step of length h for a particle with momentum p, spin S (has_spin) and optical
 // depth tau (inversion sampler) in the fields E, B. record(photon) is called for every emitted photon.
 template <class Record>
 KOKKOS_INLINE_FUNCTION void substep(const Emission& Q, bool has_spin, const V3& E, const V3& B, Real h, V3& p, V3& S,
                                     Real& tau, ParticleRandom& random, Record record) {
     if (!(h > Real(0))) return;
-    if (Q.model != STOCHASTIC) {
+    if (Q.model != STOCHASTIC) {   // deterministic: spin over the first half, energy loss, spin over the second half
+        const bool relax = has_spin && Q.spin_change;
+        if (relax) relax_spin(Q, E, B, Real(0.5) * h, p, S);
         if (Q.recoil) radiate_continuously(Q, has_spin, E, B, h, p, S);
+        if (relax) relax_spin(Q, E, B, Real(0.5) * h, p, S);
         return;
     }
 
