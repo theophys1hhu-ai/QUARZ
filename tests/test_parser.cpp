@@ -86,7 +86,10 @@ int main(int argc, char* argv[]) {
             const double x = -2 + 4.0 * i / n, y = 1 - 2.0 * i / n, z = 6.0 * i / n;
             err = std::max(err, std::fabs(h(i) - p(x, y, z)));
         }
-        check(err == 0.0, "device (Kokkos kernel) evaluation identical to host");
+        // (not bit-identical on a GPU: exp, sin, pow of the device differ from the host's libm in the last bits)
+        char m[96];
+        std::snprintf(m, sizeof m, "device (Kokkos kernel) evaluation = host: max diff %.1e (< 1e-12)", err);
+        check(err < 1e-12, m);
     }
 
     // constant folding: an expression without variables is a single constant
