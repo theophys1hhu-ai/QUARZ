@@ -202,6 +202,17 @@ struct BesselTable {
             bessel::synchrotron_functions(y, K13, K23, IK13);
         }
     }
+    // the same on the host (operator() reads device memory: kernels only on a GPU)
+    void host(double y, double& K13, double& K23, double& IK13) const {
+        if (y >= y_min && y <= y_max) {
+            const double e = std::exp(-y);   // the table holds e^y K
+            K13 = e * t.eval_host(0, y);
+            K23 = e * t.eval_host(1, y);
+            IK13 = e * t.eval_host(2, y);
+        } else {
+            bessel::synchrotron_functions(y, K13, K23, IK13);
+        }
+    }
 };
 BesselTable make_bessel_table(double y_min = 1e-6, double y_max = Y_MAX, double points_per_decade = 32);
 
@@ -232,6 +243,17 @@ struct RateTable {
         if (!(chi > Real(0))) return r;
         Real v[7];
         t.eval(chi, v);
+        return from_columns(v, chi);
+    }
+    // the same on the host (operator() reads device memory: kernels only on a GPU)
+    RateValues host(double chi) const {
+        if (!(chi > 0)) return RateValues();
+        double v[7];
+        t.eval_host(chi, v);
+        return from_columns(v, chi);
+    }
+    KOKKOS_INLINE_FUNCTION static RateValues from_columns(const Real* v, Real chi) {
+        RateValues r;
         r.W = v[0]; r.G = v[1]; r.Xi = v[2]; r.K = v[3]; r.Wu = v[4]; r.Gu = v[5];
         const Real R0 = Real(RMAX_SAFETY) * rate_r(Real(0), chi, Real(0));
         r.Rmax = v[6] > R0 ? v[6] : R0;

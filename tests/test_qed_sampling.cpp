@@ -46,15 +46,14 @@ static void spectrum_table_values(const SpectrumTable& S) {
     std::printf("1. Spectrum table (%d chi x %d u nodes)\n", S.t.size(), S.nu);
     double e = 0, eW = 0;
     for (double chi : {3.3e-5, 0.0123, 0.77, 4.6, 523.0}) {
-        const LogTable::Stencil st = S.t.stencil_at(chi);   // host evaluation (OpenMP: host memory)
-        for (int j = 0; j < S.nu; j += 37) {
+        for (int j = 0; j < S.nu; j += 37) {   // (eval_host: the table itself lives in device memory)
             const double u = SpectrumTable::u_of_L(S.L_node(j));
-            const double Wc = S.t.eval(st, j), Gc = S.t.eval(st, S.nu + j);
+            const double Wc = S.t.eval_host(j, chi), Gc = S.t.eval_host(S.nu + j, chi);
             const double scale = F_exact(1.0, chi, 0.0);   // errors relative to the total W
             e = std::fmax(e, std::fmax(std::abs(Wc - F_exact(u, chi, 0.0)), std::abs(Gc - (F_exact(u, chi, 1.0) - F_exact(u, chi, 0.0)))) / scale);
         }
         const Integrals I = integrals(chi);
-        eW = std::fmax(eW, std::fmax(std::abs(S.t.eval(st, S.nu - 1) / I.W - 1), std::abs(S.t.eval(st, 2 * S.nu - 1) / I.G - 1)));
+        eW = std::fmax(eW, std::fmax(std::abs(S.t.eval_host(S.nu - 1, chi) / I.W - 1), std::abs(S.t.eval_host(2 * S.nu - 1, chi) / I.G - 1)));
     }
     char m[200];
     std::snprintf(m, sizeof m, "Wc(u_j), Gc(u_j) at 5 chi off the grid vs quadrature: max error %.1e of W (< 1e-6)", e);
@@ -106,7 +105,7 @@ static void spectra(const SpectrumTable& S, const BesselTable& B, const RateTabl
         frac[b] = (F_exact(std::pow((b + 1.0) / nb, 3), chi, s2) - F_exact(std::pow(double(b) / nb, 3), chi, s2)) / Ftot;
     // rejection: N trials with C0 dt such that P <= 0.9
     const int N = 4000000;
-    const double C0dt = 0.9 / R(chi).Rmax;
+    const double C0dt = 0.9 / R.host(chi).Rmax;
     Kokkos::View<double*> d_u("u", N);
     Kokkos::parallel_for("rej", Kokkos::RangePolicy<>(0, N), KOKKOS_LAMBDA(int i) {
         d_u(i) = rejection_trial(chi, s2, C0dt, ion_rand(7, i, 0), ion_rand(7, i, 1), B);
@@ -142,7 +141,7 @@ static void spectra(const SpectrumTable& S, const BesselTable& B, const RateTabl
 static double count_photons(int mode, double chi, double s2, double C0, double T, double dt, int n_particles,
                             const RateTable& R, const BesselTable& B, double p_max) {
     const int nsteps = static_cast<int>(T / dt + 0.5);
-    const RateValues rv = R(chi);
+    const RateValues rv = R.host(chi);
     const double rate = C0 * (rv.W + rv.G * s2);   // total emission rate
     double total = 0;
     Kokkos::parallel_reduce("count", Kokkos::RangePolicy<>(0, n_particles), KOKKOS_LAMBDA(int p, double& count) {
@@ -179,7 +178,7 @@ static void emission_statistics(const RateTable& R, const BesselTable& B) {
     const double chi = 0.5, T = 1000, dt = 1;
     char m[200];
     for (double s2 : {-1.0, 1.0}) {
-        const RateValues rv = R(chi);
+        const RateValues rv = R.host(chi);
         for (double photons_per_step : {0.01, 0.5, 3.0}) {   // mean number of photons per particle and step
             const double C0 = photons_per_step / (rv.W + rv.G * s2) / dt;
             const double expect = 2000 * C0 * T * (rv.W + rv.G * s2);
@@ -191,14 +190,14 @@ static void emission_statistics(const RateTable& R, const BesselTable& B) {
             check(std::abs(sr) < 4 && std::abs(si) < 4, m);
         }
     }
-    const RateValues rv = R(chi);
+    const RateValues rv = R.host(chi);
     std::snprintf(m, sizeof m, "spin dependence: rate(s2 = +1) / rate(s2 = -1) = (W + G)/(W - G) = %.4f", (rv.W + rv.G) / (rv.W - rv.G));
     check((rv.W + rv.G) / (rv.W - rv.G) < 1, m);
     // the sub-step bound: C0 dt_sub max_r 3 r^2 (w + |g|) <= p_max
     double worst = 0;
     for (double chi2v : {1e-4, 0.03, 1.0, 30.0, 3000.0})
         for (double C0dt : {1e-3, 0.7, 50.0}) {
-            const int n = rejection_substeps(C0dt, R(chi2v).Rmax, 0.1);
+            const int n = rejection_substeps(C0dt, R.host(chi2v).Rmax, 0.1);
             worst = std::fmax(worst, C0dt / n * max_rate_r(chi2v) / 0.1);
         }
     std::snprintf(m, sizeof m, "rejection_substeps: max P / p_max = %.3f (<= 1)", worst);
@@ -216,9 +215,14 @@ static void files(const SpectrumTable& S, const BesselTable& B) {
     std::vector<double> xi;
     for (int i = 0; i < 2000; ++i) xi.push_back(ion_rand(3, i, 0));
     bool same = L.nu == S.nu && L.L0 == S.L0 && L.dL == S.dL;
-    for (double chi : {2e-5, 0.4, 9000.0}) same = same && sample_inversion(S, B, chi, 0.3, xi) == sample_inversion(L, B, chi, 0.3, xi);
+    double du = 0;   // samples of the built and the loaded table (same data; equal up to round-off of the kernels)
+    for (double chi : {2e-5, 0.4, 9000.0}) {
+        const std::vector<double> a = sample_inversion(S, B, chi, 0.3, xi), b = sample_inversion(L, B, chi, 0.3, xi);
+        for (size_t i = 0; i < a.size(); ++i) du = std::fmax(du, std::abs(a[i] - b[i]) / std::fmax(std::abs(a[i]), 1e-300));
+    }
+    same = same && du <= 1e-12;
     char m[200];
-    std::snprintf(m, sizeof m, "save (%.0f ms) / load (%.0f ms): axis and samples bit-identical",
+    std::snprintf(m, sizeof m, "save (%.0f ms) / load (%.0f ms): axis identical, samples equal (1e-12)",
                   std::chrono::duration<double, std::milli>(t1 - t0).count(), std::chrono::duration<double, std::milli>(t2 - t1).count());
     check(same, m);
     std::string s1, s2, s3;

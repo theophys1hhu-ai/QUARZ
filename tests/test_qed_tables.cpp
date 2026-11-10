@@ -120,20 +120,50 @@ static void bessel_table() {
         Kokkos::parallel_reduce("btab.out3", Kokkos::RangePolicy<>(0, 1), KOKKOS_LAMBDA(int, double& s) {
             double p, q, r; T(y, p, q, r); s = r + 0 * p + 0 * q; }, c);
         bessel::synchrotron_functions(y, A, B, C);
-        same = same && a == A && b == B && c == C;
+        // device kernel vs host: the same functions up to round-off (y = 1e4: both 0)
+        auto close = [](double p, double q) { return p == q || std::abs(p - q) <= 1e-12 * std::abs(q); };
+        same = same && close(a, A) && close(b, B) && close(c, C);
+        double hA, hB, hC;
+        T.host(y, hA, hB, hC);
+        same = same && hA == A && hB == B && hC == C;   // host path of the table: the direct functions
     }
-    check(same, "outside [1e-6, 700]: the direct functions (bit-identical)");
+    check(same, "outside [1e-6, 700]: the direct functions (device 1e-12, host path exactly)");
+    {   // host path inside the range = device path
+        double eh = 0;
+        for (double y : {1e-5, 0.02, 0.7, 3.3, 40.0, 500.0}) {
+            double a = 0, hA, hB, hC;
+            Kokkos::parallel_reduce("btab.in", Kokkos::RangePolicy<>(0, 1), KOKKOS_LAMBDA(int, double& s) {
+                double p, q, r; T(y, p, q, r); s = p + q + r; }, a);
+            T.host(y, hA, hB, hC);
+            eh = std::fmax(eh, std::abs(a / (hA + hB + hC) - 1));
+        }
+        std::snprintf(m, sizeof m, "table evaluated on the host (BesselTable::host) vs in a kernel: max rel. %.1e (< 1e-12)", eh);
+        check(eh < 1e-12, m);
+    }
     // coefficients through the table
     double ec = 0;
-    for (int i = 0; i < 20000; ++i) {
-        const double r = U(rng), u = r * r * r, chi = std::pow(10.0, -3 + 6 * U(rng));
-        const Coef a = coefficients(u, chi, T), b = coefficients(u, chi);
-        if (!(b.w > 0)) continue;
+    const int NC = 20000;
+    Kokkos::View<double*[2]> uc("uc", NC);
+    {
+        auto h = Kokkos::create_mirror_view(uc);
+        for (int i = 0; i < NC; ++i) {
+            const double r = U(rng);
+            h(i, 0) = r * r * r;
+            h(i, 1) = std::pow(10.0, -3 + 6 * U(rng));
+        }
+        Kokkos::deep_copy(uc, h);
+    }
+    Kokkos::parallel_reduce("btab.coef", Kokkos::RangePolicy<>(0, NC), KOKKOS_LAMBDA(int i, double& dm) {
+        const Coef a = coefficients(uc(i, 0), uc(i, 1), T), b = coefficients(uc(i, 0), uc(i, 1));
+        if (!(b.w > 0)) return;
         // relative to the scale of the spin-dependent terms (w), as they enter the rates
         const double d[9] = {a.w - b.w, a.g - b.g, a.f2 - b.f2, a.fs - b.fs, a.fv - b.fv,
                              a.x1 - b.x1, a.x2 - b.x2, a.x3 - b.x3, a.x3s - b.x3s};
-        for (double v : d) ec = std::fmax(ec, std::abs(v) / b.w);
-    }
+        for (int k = 0; k < 9; ++k) {
+            const double e = Kokkos::fabs(d[k]) / b.w;
+            if (e > dm) dm = e;
+        }
+    }, Kokkos::Max<double>(ec));
     std::snprintf(m, sizeof m, "coefficients(u, chi, table) vs direct, 2e4 random (u, chi): max |diff|/w %.1e (< 1e-6)", ec);
     check(ec < 1e-6, m);
 }
@@ -146,11 +176,12 @@ static void rate_table() {
     std::printf("    built in %.2f s (%d points)\n", tb, T.t.size());
     std::mt19937_64 rng(2);
     std::uniform_real_distribution<double> U(0, 1);
-    double e[6] = {0};
+    double e[6] = {0}, ehost = 0;
     for (int i = 0; i < 300; ++i) {
         const double chi = std::pow(10.0, -5 + 9 * U(rng));
         double W = 0;
         Kokkos::parallel_reduce("rtab", Kokkos::RangePolicy<>(0, 1), KOKKOS_LAMBDA(int, double& s) { s = T(chi).W; }, W);
+        ehost = std::fmax(ehost, std::abs(T.host(chi).W / W - 1));
         double vv[6];
         for (int c = 0; c < 6; ++c) vv[c] = host_eval(T.t, c, chi);
         const Integrals I = integrals(chi);
@@ -163,6 +194,11 @@ static void rate_table() {
         char m[160];
         std::snprintf(m, sizeof m, "%-4s 300 random chi: max rel. error %.1e (< 1e-6)", names[c], e[c]);
         check(e[c] < 1e-6, m);
+    }
+    {
+        char m[160];
+        std::snprintf(m, sizeof m, "RateTable::host() vs the kernel evaluation: max rel. %.1e (< 1e-12)", ehost);
+        check(ehost < 1e-12, m);
     }
     // Rmax: an upper bound within 2 %, on a dense grid through the kink at chi ~ 25
     double lo = 1e300, hi = 0;
@@ -195,7 +231,7 @@ static void rate_table() {
     char m[200];
     std::snprintf(m, sizeof m, "max_rate_r vs 1e5-point scan: %.1e relative (>= 0, < 1e-6); bound holds for s2 = +-1", eb);
     check(eb >= -1e-14 && eb < 1e-6 && bound, m);
-    check(T(0.0).W == 0 && T(-1.0).Rmax == 0, "chi <= 0: all zero");
+    check(T(0.0).W == 0 && T(-1.0).Rmax == 0 && T.host(0.0).W == 0, "chi <= 0: all zero");
 }
 
 static void timing() {
@@ -217,14 +253,17 @@ static void timing() {
     }
 }
 
-// device evaluation of all columns at many x: bit-identical tables give identical results
+// device evaluation of all columns at many x: tables with identical data give the same results
+// (to 1e-13: the two evaluations sit at different places of a kernel and need not round identically)
 static bool same_eval(const LogTable& A, const LogTable& B, double lo, double hi) {
     const int N = 20000, nc = A.ncomp();
     int bad = 0;
     Kokkos::parallel_reduce("tab.same", Kokkos::RangePolicy<>(0, N), KOKKOS_LAMBDA(int i, int& b) {
         const double x = lo * Kokkos::pow(hi / lo, (i + 0.37) / N);
-        for (int c = 0; c < nc; ++c)
-            if (A.eval(c, x) != B.eval(c, x)) ++b;
+        for (int c = 0; c < nc; ++c) {
+            const double p = A.eval(c, x), q = B.eval(c, x);
+            if (!(Kokkos::fabs(p - q) <= 1e-13 * Kokkos::fabs(q))) ++b;
+        }
     }, bad);
     return bad == 0;
 }
@@ -262,7 +301,7 @@ static void files() {
     bool vals = L.size() == T.size() && L.ncomp() == 3 && L.axis_min() == T.axis_min() && L.axis_max() == T.axis_max();
     for (int i = 0; vals && i < T.size(); ++i)
         for (int c = 0; c < 3; ++c) vals = vals && L.value(i, c) == T.value(i, c) && L.mode(c) == T.mode(c);
-    check(vals && same_eval(T, L, 1e-4, 100), "save/load: values, modes, axis bit-identical; evaluation (incl. extrapolation) identical");
+    check(vals && same_eval(T, L, 1e-4, 100), "save/load: stored values, modes, axis bit-identical; evaluation (incl. extrapolation) equal to 1e-13");
     check(lab.size() == 3 && lab[1] == "x_exp(-x)" && meta["origin"] == "unit test" && meta["answer"] == "42" && L.name() == "gen",
           "labels, meta entries (values with spaces) and name restored");
     const std::string txt = slurp(f1);
@@ -291,7 +330,7 @@ static void files() {
     const auto t3 = std::chrono::steady_clock::now();
     auto ms = [](auto a, auto b) { return std::chrono::duration<double, std::milli>(b - a).count(); };
     char m[200];
-    std::snprintf(m, sizeof m, "rate table: load identical (build %.1f ms, save %.2f ms, load %.2f ms, %zu bytes)",
+    std::snprintf(m, sizeof m, "rate table: loaded = built (build %.1f ms, save %.2f ms, load %.2f ms, %zu bytes)",
                   ms(t0, t1), ms(t1, t2), ms(t2, t3), slurp(f2).size());
     check(same_eval(R.t, RL.t, 1e-6, 1e5), m);
     check(throws([&] { load_bessel_table(f2); }) && throws([&] { load_rate_table(f1); }),

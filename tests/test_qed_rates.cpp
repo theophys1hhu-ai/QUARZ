@@ -219,11 +219,20 @@ static void sampling() {
     Kokkos::parallel_reduce("qed.test", Kokkos::RangePolicy<>(0, N), KOKKOS_LAMBDA(int i, double& dm) {
         const Real u = (i + Real(0.5)) / N, x = Kokkos::pow(Real(10), Real(-2) + Real(4) * (i % 97) / Real(96));
         const Coef c = coefficients(u, x);
-        const Real e = Kokkos::fabs(c.w - w_rad(u, x)) + Kokkos::fabs(c.x2 - coefficients(u, x).x2);
+        const Real e = Kokkos::fabs(c.w / w_rad(u, x) - 1) + Kokkos::fabs(c.x3 / coefficients(u, x).x3 - 1);
         if (e > dm) dm = e;
     }, Kokkos::Max<double>(d));
-    std::snprintf(m, sizeof m, "Kokkos kernel (%s): coefficients reproducible, max diff %.1e", Kokkos::DefaultExecutionSpace::name(), d);
-    check(d == 0, m);
+    // device kernel vs the host: same functions, but compilers may contract a*b+c differently
+    const double HOSTW0 = w_rad(0.01, 1.0), HOSTW1 = w_rad(0.3, 1.0), HOSTW2 = w_rad(0.6, 1.0), HOSTW3 = w_rad(0.95, 1.0);
+    double dh = 0;
+    Kokkos::parallel_reduce("qed.test2", Kokkos::RangePolicy<>(0, 4), KOKKOS_LAMBDA(int i, double& dm) {
+        const Real us[4] = {0.01, 0.3, 0.6, 0.95}, ws[4] = {HOSTW0, HOSTW1, HOSTW2, HOSTW3};
+        const Real e = Kokkos::fabs(w_rad(us[i], Real(1)) / ws[i] - 1);
+        if (e > dm) dm = e;
+    }, Kokkos::Max<double>(dh));
+    std::snprintf(m, sizeof m, "Kokkos kernel (%s): coefficients consistent within the kernel %.1e, vs the host %.1e (< 1e-12)",
+                  Kokkos::DefaultExecutionSpace::name(), d, dh);
+    check(d < 1e-12 && dh < 1e-12, m);
 }
 
 int main(int argc, char** argv) {

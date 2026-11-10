@@ -165,7 +165,7 @@ static void variants() {
     }, Kokkos::Max<double>(dmax));
     std::snprintf(m, sizeof m, "Kokkos kernel (%s), 1e5 points: combined vs single functions %.1e",
                   Kokkos::DefaultExecutionSpace::name(), dmax);
-    check(dmax < 1e-14, m);
+    check(dmax < 1e-12, m);   // (not exactly 0 on a GPU: contraction of a*b+c may differ between the two paths)
 }
 
 int main(int argc, char** argv) {

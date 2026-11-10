@@ -237,6 +237,19 @@ public:
         return sign_(c) != Real(0) ? sign_(c) * Kokkos::exp(v) : v;
     }
 
+    // ---- evaluation on the host (the functions above read device memory and may only be called inside
+    //      kernels when the default execution space is a GPU); same interpolation, host copy of the table
+    double eval_host(int c, double x) const {
+        int j;
+        Real w[4];
+        stencil(std::log(x), j, w);
+        const double v = w[0] * Fh_(j, c) + w[1] * Fh_(j + 1, c) + w[2] * Fh_(j + 2, c) + w[3] * Fh_(j + 3, c);
+        return sign_h_(c) != 0 ? sign_h_(c) * std::exp(v) : v;
+    }
+    void eval_host(double x, double* out) const {
+        for (int c = 0; c < nc_; ++c) out[c] = eval_host(c, x);
+    }
+
 private:
     using HostValues = Kokkos::View<double**, Kokkos::LayoutRight, Kokkos::HostSpace>;
 
@@ -281,6 +294,10 @@ private:
         }
         Kokkos::deep_copy(T.F_, hF);
         Kokkos::deep_copy(T.sign_, hs);
+        T.Fh_ = HostValues("LogTable.F_host", n, nc);
+        T.sign_h_ = Kokkos::View<double*, Kokkos::HostSpace>("LogTable.sign_host", nc);
+        Kokkos::deep_copy(T.Fh_, hF);
+        Kokkos::deep_copy(T.sign_h_, hs);
         return T;
     }
     // names and labels are single words in the file
@@ -322,6 +339,8 @@ private:
     int n_ = 0, nc_ = 0;
     // host side: the function values as built or loaded (saved exactly), modes, axis ends, name
     HostValues V_;
+    HostValues Fh_;               // host copies of F_ and sign_ (eval_host)
+    Kokkos::View<double*, Kokkos::HostSpace> sign_h_;
     Kokkos::View<int*, Kokkos::HostSpace> mode_h_;
     double xmin_ = 0, xmax_ = 0;
     char name_[64] = "LogTable";   // not std::string: the class is copied into device kernels
