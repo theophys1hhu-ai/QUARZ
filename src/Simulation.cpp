@@ -291,11 +291,18 @@ Simulation::Simulation(const Config& cfg) : cfg_(cfg), comm_(Comm::world()) {
         }
     }
     next_rec_ = start_step_;
-    if (adaptive_ && comm_.root()) {
+    // timestep.txt: every step, also with a constant time step (then without the columns of the adaptive choice)
+    if (comm_.root()) {
         dtlog_.open(outdir_ + "/timestep.txt", std::ios::out | (restarted_ ? std::ios::app : std::ios::trunc));
-        if (!restarted_ || dtlog_.tellp() == 0)
-            dtlog_ << "# step t dt gamma_eff n_max   (adaptive: dt = 2 pi / (" << nbeta_
-                   << " omega_beta), omega_beta^2 = n_max / (2 gamma_eff), gamma_eff = gamma m/|q| of the slowest beam particle)\n";
+        if (!restarted_ || dtlog_.tellp() == 0) {
+            if (adaptive_)
+                dtlog_ << "# step t dt gamma_eff n_max   (adaptive: dt = 2 pi / (" << nbeta_
+                       << " omega_beta), omega_beta^2 = n_max / (2 gamma_eff), gamma_eff = gamma m/|q| of the slowest beam particle)\n";
+            else
+                dtlog_ << "# step t dt   (constant time step time.dt)\n";
+        }
+    }
+    if (adaptive_ && comm_.root()) {
         std::cout << "Adaptive time step: " << nbeta_ << " steps per betatron period, dt in [" << dt_min_ << ", " << dt_max_
                   << "], gamma >= " << gthr_ << ", lag " << lag_ << " steps\n";
     }
@@ -1394,8 +1401,11 @@ void Simulation::run() {
             std::cout << std::endl;
         }
 
-        if (adaptive_ && comm_.root() && !cur_last_)
-            dtlog_ << n << " " << std::setprecision(12) << t_ << " " << cur_dt_ << " " << last_gamma_ << " " << last_dens_ << std::endl;
+        if (comm_.root() && !cur_last_) {
+            dtlog_ << n << " " << std::setprecision(12) << t_ << " " << cur_dt_;
+            if (adaptive_) dtlog_ << " " << last_gamma_ << " " << last_dens_;
+            dtlog_ << std::endl;
+        }
 
         // the last step pushes the beams only for a final checkpoint (the state of step n + 1)
         const bool last = cur_last_;

@@ -962,7 +962,8 @@ conservative one). During the first lag steps no rate is known yet. The step is 
 pipeline with the step-n message, so all ranks use the same Δt_n and the result does not
 depend on timing: a serial run with the same `time.adaptive_lag` is bit-identical to an MPI run.
 The beam leapfrog takes variable steps (kick (Δt_{n−1} + Δt_n)/2, drift Δt_n); with a constant
-step it is the usual scheme, bit for bit. Output: `timestep.txt` (step, t, Δt, γ_eff, n_max) and
+step it is the usual scheme, bit for bit. Output: `timestep.txt` (step, t, Δt, γ_eff, n_max; written
+in every run, with a constant time step just step, t, Δt) and
 `gamma_records.txt` (true global γ_eff after every push, for checking). Checkpoints carry the
 state (`adapt_rank_*.txt`). Not available with a laser (fixed step of the envelope solver).
 
@@ -1138,6 +1139,8 @@ frequent small dumps and rare full dumps can be combined (§6):
   ⟨p_x²⟩ = ⟨p⊥²⟩/2, ⟨x p_x⟩ = ⟨r·p⊥⟩/2, means 0). Before 2026-10-30 they were the projections of the
   representative particles; for the parsed loader, which puts all of them at y = 0, σ_x was r_rms and
   ε_n,x about √2 too large and not conserved under radial forces.
+- **`timestep.txt`**, one line per step: step, t, Δt; with `time.adaptive` also γ_eff and n_max behind the
+  choice of the step (§5).
 - **`slices_<beam>_NNNNNN.txt`**: per-ξ-bin charge, ⟨x⟩, ⟨y⟩, σ_x, σ_y, ⟨γ⟩
   and ε_n,x, for hosing studies. Bins are `output.beam_slices` equal bins over
   `output.beam_slices_range` (empty bins are skipped).
