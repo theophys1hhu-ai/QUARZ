@@ -7,12 +7,13 @@
 //        inversion (default): the optical depth tau decreases at the total rate C0 (W + G s2); each time
 //                             it reaches 0 a photon is emitted (several per sub-step are possible)
 //        rejection:           one trial: candidate u = r^3, accepted with probability C0 h 3 r^2 (w + g s2)
-//   3. for every photon: recoil (the lepton keeps its direction, eps -> (1 - u) eps), the new spin
-//      (eqs. 5-7), the photon's Stokes vector (eq. 20), and a record for the output
+//   3. for every photon: recoil (the lepton keeps its direction, eps -> (1 - u) eps), the new spin and
+//      the photon's Stokes vector (spin_after_emission, stokes_of_photon), and a record for the output
 //   4. without emission: the spin changes by the selection bias: states that emit less become more
-//      likely. Rejection (a trial per sub-step): eq. 8, conditioned on no emission in the sub-step.
-//      Inversion (continuous time): the exact solution of the same process in continuous time
-//      (spin_without_emission_continuous); eq. 8 there would overstate the change by 1/p0.
+//      likely (Li et al., PRL 122, 154801 (2019)). Rejection (a trial per sub-step): the no-emission
+//      state of one trial (spin_without_emission). Inversion (continuous time): the exact solution of the
+//      same process in continuous time (spin_without_emission_continuous); the per-trial formula would
+//      overstate the change there by 1/p0.
 // Spin models: mixed (default) - the spin vector of a macro-particle is an average, |S| <= 1, and takes
 // the expectation values S_f = p_f / (w + <g, S>); pure - |S| = 1, the spin collapses to +-p_f/|p_f|
 // with the probabilities (1 +- |p_f|/(w + <g, S>)) / 2 (the same rule for the photon polarization and,
@@ -74,7 +75,7 @@ KOKKOS_INLINE_FUNCTION V3 collapse(const V3& m, Real random) {
     return (sign / len) * m;
 }
 
-// Spin after a time t without emission (eq. 8): p_NR = S (1 - C0 t W) - C0 t G e2, normalized by the
+// Spin after a time t without emission: p_NR = S (1 - C0 t W) - C0 t G e2, normalized by the
 // probability of no emission, p0 = 1 - C0 t (W + G s2). (|p_NR| <= p0, so the length stays <= 1.)
 KOKKOS_INLINE_FUNCTION V3 spin_without_emission(const V3& S, const Basis& b, Real C0_t, const RateValues& r) {
     const Real s2 = push::dot(S, b.e2);
@@ -154,7 +155,7 @@ KOKKOS_INLINE_FUNCTION void radiate_continuously(const Emission& Q, bool has_spi
 //   dS/dt = C0 [(Xi - W) S + (K - G) e2 + V <S, e_v> e_v],
 // i.e. in the basis (e1, e2, e_v), with the integrals SB, SA, SL of the rate table,
 //   d s1/dt = -C0 SB s1,   d s2/dt = -C0 (SB s2 + SA),   d s_v/dt = -C0 SL s_v
-// (s2 is eq. 14 of the QED module; equilibrium s2 = -SA/SB). Solved exactly for the chi of the sub-step.
+// (equilibrium s2 = -SA/SB; Sokolov-Ternov for chi -> 0). Solved exactly for the chi of the sub-step.
 // classical: the chi -> 0 limits SB = (15 pi/8) chi^3, SA = sqrt(3) pi chi^3, SL = (35 pi/24) chi^3: the
 // Sokolov-Ternov rate 1/tau = (5 sqrt(3)/8) alpha chi^3 / (eta gamma) and limit -8 sqrt(3)/15.
 KOKKOS_INLINE_FUNCTION void relax_spin(const Emission& Q, const V3& E, const V3& B, Real h, const V3& p, V3& S) {
@@ -226,7 +227,7 @@ KOKKOS_INLINE_FUNCTION void substep(const Emission& Q, bool has_spin, const V3& 
         const Real u_ph = rejection_trial(chi_e, s2, C0 * h, r1, r2, Q.bessel);
         if (u_ph > Real(0)) {   // (the time of a trial is taken as the middle of the sub-step)
             record(emit(Q, has_spin, u_ph, chi_e, b, Real(0.5) * h, p, S, random));
-        } else if (has_spin && Q.spin_change) {   // no emission in this trial: eq. 8 (a pure state is measured)
+        } else if (has_spin && Q.spin_change) {   // no emission in this trial (a pure state is measured)
             const V3 m = spin_without_emission(S, b, C0 * h, Q.rates(chi_e));
             S = Q.spin_model == PURE ? collapse(m, random()) : m;
         }

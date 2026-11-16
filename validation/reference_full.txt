@@ -351,19 +351,19 @@ out_opmd_nat vs out_opmd_p2n: iterations [0, 2, 4], max rel diff 0.00e+00
   chi = 1, s2 = +0: 103845 photons, expected 103827.5 (+0.05 sigma); spectrum chi^2/dof = 0.61 (20 bins); <u> = 0.11759 (expected 0.11740)
  (b) spin-resolved emission (spin fixed along +-B, no recoil): rate and spectrum difference, photon polarization:
   chi = 1: photon number ratio s2 = +1 / -1: 0.9125 +- 0.0040, expected (W + G)/(W - G) = 0.9128 (-0.08 sigma); (dN+ - dN-)/du vs 2 C0 g: chi^2/dof = 0.92
-  chi = 1, s2 = +0: <xi_3> = 0.53457 +- 0.00014, eq. 22: 0.53429 (+1.95 sigma); <xi_1>, <xi_2> = 0.0e+00, 0.0e+00 (0); xi_3(u) vs eq. 21: chi^2/dof = 1.98 (10 bins)
-  chi = 1, s2 = +1: <xi_3> = 0.47684 +- 0.00053, eq. 22: 0.47633 (+0.96 sigma); <xi_1>, <xi_2> = 0.0e+00, 0.0e+00 (0); xi_3(u) vs eq. 21: chi^2/dof = 0.90 (10 bins)
-  chi = 1, s2 = -1: <xi_3> = 0.58711 +- 0.00030, eq. 22: 0.58721 (-0.32 sigma); <xi_1>, <xi_2> = 0.0e+00, 0.0e+00 (0); xi_3(u) vs eq. 21: chi^2/dof = 0.93 (10 bins)
-  chi = 10, s2 = +0: <xi_3> = 0.46867 +- 0.00027, eq. 22: 0.46844 (+0.88 sigma); <xi_1>, <xi_2> = 0.0e+00, 0.0e+00 (0); xi_3(u) vs eq. 21: chi^2/dof = 1.24 (10 bins)
- (c) radiative polarization (Sokolov-Ternov) at fixed chi = 1, spin initially along +B, vs eq. 14:
+  chi = 1, s2 = +0: <xi_3> = 0.53457 +- 0.00014, theory: 0.53429 (+1.95 sigma); <xi_1>, <xi_2> = 0.0e+00, 0.0e+00 (0); xi_3(u) vs theory: chi^2/dof = 1.98 (10 bins)
+  chi = 1, s2 = +1: <xi_3> = 0.47684 +- 0.00053, theory: 0.47633 (+0.96 sigma); <xi_1>, <xi_2> = 0.0e+00, 0.0e+00 (0); xi_3(u) vs theory: chi^2/dof = 0.90 (10 bins)
+  chi = 1, s2 = -1: <xi_3> = 0.58711 +- 0.00030, theory: 0.58721 (-0.32 sigma); <xi_1>, <xi_2> = 0.0e+00, 0.0e+00 (0); xi_3(u) vs theory: chi^2/dof = 0.93 (10 bins)
+  chi = 10, s2 = +0: <xi_3> = 0.46867 +- 0.00027, theory: 0.46844 (+0.88 sigma); <xi_1>, <xi_2> = 0.0e+00, 0.0e+00 (0); xi_3(u) vs theory: chi^2/dof = 1.24 (10 bins)
+ (c) radiative polarization (Sokolov-Ternov) at fixed chi = 1, spin initially along +B, vs the mean spin equation:
    mixed states, inversion sampler:
-  chi = 1, S0 = +1: <s2>(t) vs eq. 14 over 4.2 relaxation times: max |diff| 0.0225 (1.4 sigma); final -0.8090 (eq. 14: -0.8106, limit S_inf = -0.8375)
+  chi = 1, S0 = +1: <s2>(t) vs the mean spin equation over 4.2 relaxation times: max |diff| 0.0225 (1.4 sigma); final -0.8090 (theory: -0.8106, limit S_inf = -0.8375)
    mixed states, rejection sampler:
-  chi = 1, S0 = +1: <s2>(t) vs eq. 14 over 4.2 relaxation times: max |diff| 0.0179 (0.8 sigma); final -0.8140 (eq. 14: -0.8106, limit S_inf = -0.8375)
+  chi = 1, S0 = +1: <s2>(t) vs the mean spin equation over 4.2 relaxation times: max |diff| 0.0179 (0.8 sigma); final -0.8140 (theory: -0.8106, limit S_inf = -0.8375)
    pure states, inversion sampler:
-  chi = 1, S0 = +1: <s2>(t) vs eq. 14 over 4.2 relaxation times: max |diff| 0.0437 (2.7 sigma); final -0.8000 (eq. 14: -0.8106, limit S_inf = -0.8375)
+  chi = 1, S0 = +1: <s2>(t) vs the mean spin equation over 4.2 relaxation times: max |diff| 0.0437 (2.7 sigma); final -0.8000 (theory: -0.8106, limit S_inf = -0.8375)
    pure states, rejection sampler:
-  chi = 1, S0 = +1: <s2>(t) vs eq. 14 over 4.2 relaxation times: max |diff| 0.0378 (1.9 sigma); final -0.7980 (eq. 14: -0.8106, limit S_inf = -0.8375)
+  chi = 1, S0 = +1: <s2>(t) vs the mean spin equation over 4.2 relaxation times: max |diff| 0.0378 (1.9 sigma); final -0.7980 (theory: -0.8106, limit S_inf = -0.8375)
  (c') deterministic radiative polarization (qed.model = continuous, classical), fixed momentum, all spin components:
   qed.model = continuous, chi = 1: (s2, s1, sv) (0.600, -0.480, 0.640) -> (-0.8165, -0.0070, 0.0495) after 4.2 relaxation times; max |diff| to the mean spin equation 3.8e-11 (equilibrium s2 = -0.8375)
   qed.model = classical, chi = 1: (s2, s1, sv) (0.600, -0.480, 0.640) -> (-0.9041, -0.0062, 0.0217) after 4.3 relaxation times; max |diff| to the mean spin equation 8.4e-11 (equilibrium s2 = -0.9238)

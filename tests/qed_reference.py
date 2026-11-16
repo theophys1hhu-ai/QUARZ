@@ -3,7 +3,7 @@
 
 Independent of the C++ code: K_nu from mpmath.besselk, IntK_{1/3} from the Airy integral
 IntK_{1/3}(x) = pi/sqrt(3) - pi sqrt(3) int_0^z Ai(s) ds,  z = (3x/2)^{2/3}  (computed with 120 digits),
-the coefficients of eq. 4 (QEDRates.hpp) written out directly and the u-integrals by mpmath.quad.
+the coefficients (C) of QEDRates.hpp written out directly and the u-integrals by mpmath.quad.
 usage: python3 tests/qed_reference.py [bessel|rates]      (rates: ~15 min)
 """
 import sys

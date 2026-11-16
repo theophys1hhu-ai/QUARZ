@@ -3,15 +3,17 @@
 // A lepton with quantum parameter chi and spin component s2 = <S, e2> emits photons of energy
 // fraction u = eps_gamma / eps_e at the rate (per unit time and u)
 //
-//     dN / dt du = C0 (w(u) + g(u) s2)        (eq. 3, summed over final spin and polarization)
+//     dN / dt du = C0 (w(u) + g(u) s2)        ((R) of QEDRates.hpp, summed over final spin and polarization)
 //
 // Two ways to draw the emission times and the photon energies from this rate:
 //
-// 1. REJECTION sampler (Algorithm 1 of the QED module): every (sub-)step draws a candidate u and
-//    accepts it with the probability of emitting exactly this photon in this step.
+// 1. REJECTION sampler (rejection sampling of the differential rate, as in A. Gonoskov et al., PRE 92,
+//    023305 (2015)): every (sub-)step draws a candidate u and accepts it with the probability of
+//    emitting exactly this photon in this step.
 //    Needs only the Bessel functions. Requires a step short enough that the probability is <= 1.
 //
-// 2. INVERSION sampler (optical depth): every particle carries an optical depth tau that decreases
+// 2. INVERSION sampler (optical depth, as in C. P. Ridgers et al., J. Comput. Phys. 260, 273 (2014)):
+//    every particle carries an optical depth tau that decreases
 //    at the total rate C0 (W + G s2); when it reaches 0 the particle emits, and the photon energy is
 //    drawn by inverting the cumulative spectrum. Needs the rate table and the spectrum table below.
 //

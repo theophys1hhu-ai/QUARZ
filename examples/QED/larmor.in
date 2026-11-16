@@ -1,4 +1,4 @@
-# Larmor motion with photon emission (QED module paper, Fig. 1 left): a point-like electron bunch
+# Larmor motion with photon emission: a point-like electron bunch
 # (gamma = 1e5 along z) with transverse momentum p_perp = 40 m c gyrates in a constant longitudinal
 # field B = 10 e_z on a helix of radius p_perp / B = 4 around the axis while it radiates.
 # Units: n0 = 1.1e21 cm^-3 (critical density of a 1 um laser), so omega_p = omega_0 and lengths are

@@ -651,7 +651,7 @@ sec26() {
     $C polar out_qed_sp 1
     $C polar out_qed_sm -1
     [ "$QUICK" = 0 ] && $C polar out_qed_c10 0
-    echo " (c) radiative polarization (Sokolov-Ternov) at fixed chi = 1, spin initially along +B, vs eq. 14:"
+    echo " (c) radiative polarization (Sokolov-Ternov) at fixed chi = 1, spin initially along +B, vs the mean spin equation:"
     local combos="mixed:inversion pure:rejection"
     [ "$QUICK" = 0 ] && combos="mixed:inversion mixed:rejection pure:inversion pure:rejection"
     for c in $combos; do

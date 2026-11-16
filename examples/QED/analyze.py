@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
-"""Analysis of the QED example decks: QUARZ output vs the theory of the QED module paper.
+"""Analysis of the QED example decks: QUARZ output vs the theory (rates of src/QEDRates.hpp).
 
 usage: python3 analyze.py MODE DECK OUTDIR [OUTDIR2] [key=value ...]
   larmor        larmor.in, larmor_spiral.in: <gamma>(t) vs the synchrotron loss with g(chi); orbit radius
-  spectrum      spectrum.in: dN/du vs N_e T C0 w(u, chi)                                  (Fig. 2)
-  spindiff      spin_dependence.in: spectra for s2 = +1, -1, 0 and their difference vs 2 N_e T C0 g  (Fig. 3)
-  polspec       photon_polarization_spectrum.in: xi_3 vs photon energy for s2 = 0, +1, -1 vs eq. 21      (Fig. 5)
-  spin          sokolov_ternov.in: <s2>(t) vs eq. 14                                       (Fig. 4)
-  polarization  photon_polarization_mean.in: <xi_3> vs eq. 22 for one electron energy, xi_3(u) vs eq. 21
-  betatron      betatron.in: <gamma>(t) vs the orbit-averaged loss with A ~ gamma^(1/8)      (eqs. 25-27)
-  benchmark     pwfa_benchmark.in OUT_base OUT_sync OUT_qed: witness energy, spectra, wake (Figs. 6-8)
+  spectrum      spectrum.in: dN/du vs N_e T C0 w(u, chi)
+  spindiff      spin_dependence.in: spectra for s2 = +1, -1, 0 and their difference vs 2 N_e T C0 g
+  polspec       photon_polarization_spectrum.in: xi_3 vs photon energy for s2 = 0, +1, -1 vs p_xi / (w + g s2)
+  spin          sokolov_ternov.in: <s2>(t) vs the mean spin equation
+  polarization  photon_polarization_mean.in: <xi_3> vs int p_xi / int (w + g s2) for one electron energy, xi_3(u)
+  betatron      betatron.in: <gamma>(t) vs the orbit-averaged loss with A ~ gamma^(1/8)
+  benchmark     pwfa_benchmark.in OUT_base OUT_sync OUT_qed: witness energy, spectra, wake
 The key=value arguments repeat the command-line overrides of the run (e.g. "fields.external_B=0.41492 0 0"
 e.gamma=3e6 "e.spin=1 0 0"). Prints the comparison and writes OUTDIR/<mode>.png (with matplotlib).
 The theory functions (scipy, independent of the C++ code) come from validation/qed_check.py.
@@ -149,7 +149,7 @@ def spectrum(d, out):
 
 
 def spindiff(d, out):
-    """spin_dependence.in: beams par (s2 = +1), anti (s2 = -1) and unpol (no spin) in one run (Fig. 3)"""
+    """spin_dependence.in: beams par (s2 = +1), anti (s2 = -1) and unpol (no spin) in one run"""
     runs = {b: Run(d, b) for b in ("par", "anti", "unpol")}
     chi = runs["par"].chi
     u = {b: photons_u(out, runs[b], b)[1] for b in runs}
@@ -186,9 +186,9 @@ def spindiff(d, out):
 
 
 def polspec(d, out):
-    """photon_polarization_spectrum.in (Fig. 5): xi_3 vs photon energy for the initial spins s2 = 0, +1, -1;
+    """photon_polarization_spectrum.in: xi_3 vs photon energy for the initial spins s2 = 0, +1, -1;
     beam X writes all photons, beam X_tail (more electrons) only the hard ones (X_tail.photon_min_energy)"""
-    edges = np.linspace(0, 6e6, 25)   # photon energy in m c^2 (the paper's axis)
+    edges = np.linspace(0, 6e6, 25)   # photon energy in m c^2
     curves = {}
     for b, S in (("unpol", 0), ("par", 1), ("anti", -1)):
         run = Run(d, b)
@@ -207,8 +207,8 @@ def polspec(d, out):
             c.append(0.5 * (lo + hi)); m.append(np.mean(X[sel])); th.append(ref)
         c, m, th = np.array(c), np.array(m), np.array(th)
         curves[S] = (c, m, th)
-        print("  chi = %.3g, s2 = %+d: %d + %d photons (all / hard), xi_3 in %d bins up to %.3g m c^2: max |QUARZ - eq. 21| = %.1e;"
-              " xi_3 at the highest bin %.3f (eq. 21: %.3f)" % (run.chi, S, len(pa["energy"]), len(pt["energy"]), len(c), c[-1] + 0.5 * (edges[1] - edges[0]),
+        print("  chi = %.3g, s2 = %+d: %d + %d photons (all / hard), xi_3 in %d bins up to %.3g m c^2: max |QUARZ - theory| = %.1e;"
+              " xi_3 at the highest bin %.3f (theory: %.3f)" % (run.chi, S, len(pa["energy"]), len(pt["energy"]), len(c), c[-1] + 0.5 * (edges[1] - edges[0]),
                                                                 np.max(np.abs(m - th)), m[-1], th[-1]))
 
     def draw(plt):
@@ -216,7 +216,7 @@ def polspec(d, out):
         for S, col in ((0, "C0"), (-1, "C3"), (1, "C2")):
             c, m, th = curves[S]
             ax.plot(c, m, "x", color=col)
-            ax.plot(c, th, "--", color=col, label="s2 = %+d (eq. 21)" % S)
+            ax.plot(c, th, "--", color=col, label="s2 = %+d (theory)" % S)
         ax.set_xlabel("photon energy [m c^2]"); ax.set_ylabel("<xi_3>"); ax.set_ylim(-1, 1); ax.grid(alpha=0.3)
         ax.legend(loc="lower left"); ax.set_title("crosses: QUARZ")
         return fig
@@ -231,13 +231,13 @@ def spin(d, out):
     a, b = run.C0 * (I["fs"] - I["w"]), run.C0 * (I["f2"] - I["g"])
     Sinf = -b / a
     ref = (sx[0] - Sinf) * np.exp(a * t) + Sinf
-    print("  chi = %.3g: <s2> %.4f -> %.4f at t = %.4g; eq. 14: %.4f (limit %.4f, relaxation time %.4g); max |diff| %.4f"
+    print("  chi = %.3g: <s2> %.4f -> %.4f at t = %.4g; mean spin equation: %.4f (limit %.4f, relaxation time %.4g); max |diff| %.4f"
           % (run.chi, sx[0], sx[-1], t[-1], ref[-1], Sinf, -1 / a, np.max(np.abs(sx - ref))))
 
     def draw(plt):
         fig, ax = plt.subplots(figsize=(6, 4))
         ax.semilogx(t[1:], sx[1:], "x", label="QUARZ")
-        ax.semilogx(t[1:], ref[1:], "--", label="eq. 14")
+        ax.semilogx(t[1:], ref[1:], "--", label="mean spin equation")
         ax.axhline(-8 * np.sqrt(3) / 15, color="gray", ls=":", label="Sokolov-Ternov -8 sqrt(3)/15")
         ax.set_xlabel("t [1/omega_p]"); ax.set_ylabel("<s2>"); ax.set_title("chi = %.3g" % run.chi); ax.legend()
         return fig
@@ -250,7 +250,7 @@ def polarization(d, out):
     c, S = run.chi, run.s2
     ref = uint(lambda x: coef(x, c)["x3"] + S * coef(x, c)["x3s"]) / uint(lambda x: coef(x, c)["w"] + S * coef(x, c)["g"])
     n = len(u)
-    print("  gamma = %.3g, chi = %.3g, s2 = %+.2g: <xi_3> = %.5f +- %.5f (eq. 22: %.5f); <xi_1> = %.2g, <xi_2> = %.2g"
+    print("  gamma = %.3g, chi = %.3g, s2 = %+.2g: <xi_3> = %.5f +- %.5f (theory: %.5f); <xi_1> = %.2g, <xi_2> = %.2g"
           % (run.gamma, c, S, np.mean(p["xi3"]), np.std(p["xi3"]) / np.sqrt(n), ref, np.mean(p["xi1"]), np.mean(p["xi2"])))
     e = np.linspace(0, 1, 21)
     cen, mx, th = [], [], []
@@ -264,7 +264,7 @@ def polarization(d, out):
     def draw(plt):
         fig, ax = plt.subplots(figsize=(6, 4))
         ax.plot(cen, mx, "x", label="QUARZ")
-        ax.plot(cen, th, "--", label="eq. 21 (rate-weighted in the bin)")
+        ax.plot(cen, th, "--", label="theory (rate-weighted in the bin)")
         ax.set_xlabel("u"); ax.set_ylabel("xi_3"); ax.set_title("gamma = %.3g, s2 = %+.0f" % (run.gamma, S)); ax.legend()
         return fig
     plot(out, "polarization", draw)
@@ -305,8 +305,8 @@ def betatron(d, out):
     def draw(plt):
         fig, ax = plt.subplots(1, 2, figsize=(10, 4))
         ax[0].plot(t, g, label="QUARZ <gamma>")
-        ax[0].plot(t, g8, "r--", label="eq. 26 with A ~ gamma^(1/8)")
-        ax[0].plot(t, g0, "k:", label="eq. 26 with A = A_0")
+        ax[0].plot(t, g8, "r--", label="orbit-averaged loss, A ~ gamma^(1/8)")
+        ax[0].plot(t, g0, "k:", label="orbit-averaged loss, A = A_0")
         ax[0].set_xlabel("t [1/omega_p]"); ax[0].set_ylabel("gamma"); ax[0].legend()
         ax[1].plot(ta, Am / A0, "x", label="QUARZ <A>/A_0")
         ax[1].plot(ta, (gi / run.gamma) ** 0.125, "r--", label="(gamma/gamma_0)^(1/8)")

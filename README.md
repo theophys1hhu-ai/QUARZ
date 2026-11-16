@@ -313,8 +313,11 @@ Cost: a beam-only test (10⁶ particles, 1 thread, no plasma particles) runs 17 
 in a run with plasma this is negligible.
 
 **Photon emission (strong-field QED, nonlinear Compton scattering)**, `<beam>.qed = 1` (electrons and
-positrons; needs `units.n0_cm3`). Following the QED module of O. Mathiak, A. Pukhov et al. (QV3D), in the
-locally-constant-field approximation, with the spin of the lepton and the polarization of the photon:
+positrons; needs `units.n0_cm3`), in the locally-constant-field approximation, with the spin of the lepton
+and the polarization of the photon. The rate is that of Baier, Katkov & Strakhovenko (*Electromagnetic
+Processes at High Energies in Oriented Single Crystals*, 1998) in the spin- and polarization-resolved form
+of Y.-F. Li et al., PRL 122, 154801 (2019) and PRL 124, 014801 (2020); radiative polarization as in
+D. Seipt et al., PRA 98, 023417 (2018):
 - **Rate** (`src/QEDRates.*`). With u = ε_γ/ε_e the photon energy fraction, χ = η √((γE + u×B)² − (u·E)²)
   (η = ħω_p/mc², code units) and y = 2u/(3(1 − u)χ), the emission probability per time and u is
   C₀/4 (w + ⟨g, S_i⟩ + ⟨p_f, S_f⟩ + ⟨p_ξ, ξ⟩), C₀ = α/(√3 π η γ), with w = ((1 − u) + 1/(1 − u)) K₂/₃(y)
@@ -326,8 +329,10 @@ locally-constant-field approximation, with the spin of the lepton and the polari
   are built at start (0.2 s) or loaded from / saved to `qed.table_dir` (plain text `*.lut`).
 - **Samplers** (`src/QEDSampling.*`). `inversion` (default): every particle carries an optical depth
   τ = −ln ξ that decreases at the total rate C₀(W + G s₂); at τ = 0 a photon is emitted with u from the
-  inverted cumulative spectrum (several photons per step are possible). `rejection` (Algorithm 1 of the
-  QED module): one trial per sub-step, u = r³ accepted with probability C₀ h 3r²(w + g s₂).
+  inverted cumulative spectrum (several photons per step are possible), as in C. P. Ridgers et al.,
+  J. Comput. Phys. 260, 273 (2014). `rejection` (rejection sampling of the differential rate, as in
+  A. Gonoskov et al., PRE 92, 023305 (2015)): one trial per sub-step, u = r³ accepted with probability
+  C₀ h 3r²(w + g s₂).
 - **Sub-cycling.** The particle push (fields, Lorentz kick, T-BMT, emission, drift) is sub-cycled per
   particle into n = ⌈C₀ Δt R_max(χ)/p_max⌉ sub-steps (`qed.max_prob` = p_max, R_max = max of the sampling
   density over u and spin) in the frozen fields of the step; the momentum leaves the step at the same
@@ -335,22 +340,23 @@ locally-constant-field approximation, with the spin of the lepton and the polari
 - **Recoil and spin.** The lepton keeps its direction and its energy becomes (1 − u)ε; the photon
   momentum is uγ e_v. Spin: `qed.spin_model = mixed` (default; the spin of a macro-particle is an average,
   |S| ≤ 1, and takes the expectation values S_f = p_f/(w + ⟨g, S⟩)) or `pure` (|S| = 1, collapse to
-  ±p_f/|p_f|). Without emission the spin changes by the selection bias: eq. 8 of the QED module for the
-  rejection sampler (a trial per sub-step); for the inversion sampler its continuous-time form (the
-  exact solution of dS/dt = C₀G(s₂S − e₂) between emissions; eq. 8 would overstate it there by 1/p₀).
-  In a constant field this gives the equilibrium polarization −8√3/15 (Sokolov–Ternov) for χ → 0,
-  −0.84 at χ = 1. Beams without `<beam>.spin` use the spin-averaged rates.
+  ±p_f/|p_f|). Without emission the spin changes by the selection bias (Li et al. 2019): for the
+  rejection sampler the no-emission state of one trial, p_NR/p₀ with p_NR = S(1 − C₀hW) − C₀hG e₂ and
+  p₀ = 1 − C₀h(W + G s₂); for the inversion sampler its continuous-time form (the exact solution of
+  dS/dt = C₀G(s₂S − e₂) between emissions; the per-trial formula would overstate it there by 1/p₀).
+  In a constant field this gives the equilibrium polarization −8√3/15 for χ → 0 (A. A. Sokolov,
+  I. M. Ternov, Sov. Phys. Dokl. 8, 1203 (1964)), −0.84 at χ = 1. Beams without `<beam>.spin` use the spin-averaged rates.
 - **Output**: `photons_<beam>.bin` (one record per photon: step, time, position of the emitter, photon
   momentum, weight, Stokes vector, χ) and `qed.txt` (per step: photon number, Σw, Σw ε_γ, Σw χ), see §6.
   Records are sorted within each step, so the files do not depend on threads or MPI ranks; random numbers
   come from a hash of the particle state (restarts and MPI runs are bit-identical).
 - **Deterministic radiation reaction** (`qed.model = continuous`): dγ/dt = −(α/√3πη) ∫u(w + g s₂)du, the
-  mean power of the stochastic emission (synchrotron loss × g(χ)), the lepton keeping its direction; no
-  photons (the paper's "synchrotron" runs). `classical`: g = 1. With `<beam>.spin` the spin follows the
+  mean power of the stochastic emission (synchrotron loss × the quantum correction g(χ), T. Erber,
+  RMP 38, 626 (1966)), the lepton keeping its direction; no photons. `classical`: g = 1. With `<beam>.spin` the spin follows the
   mean of the stochastic spin changes (deterministic radiative polarization), which is linear in S:
   ds₁/dt = −C₀ S_B s₁, ds₂/dt = −C₀(S_B s₂ + S_A), ds_v/dt = −C₀ S_L s_v in the basis (e₁, e₂, e_v), with
   S_B = ∫u²/(1−u) K₂/₃ du = W − Ξ, S_A = ∫u²/(1−u) K₁/₃ du = G − K, S_L = ∫u²/(1−u) IntK₁/₃ du (tabulated;
-  s₂ is eq. 14 of the QED module, equilibrium −S_A/S_B), solved exactly in each sub-step. `classical`
+  equilibrium s₂ = −S_A/S_B), solved exactly in each sub-step. `classical`
   uses the χ → 0 limits S_B = 15πχ³/8, S_A = √3πχ³, S_L = 35πχ³/24, i.e. the Sokolov–Ternov rate
   1/τ = (5√3/8) α χ³/(ηγ) and limit −8√3/15. `qed.fixed_spin = 1` switches it off.
 - Not included: pair creation (Breit–Wheeler), emission in the laser field (the envelope has no
@@ -1341,9 +1347,9 @@ A planted bug (π changed by 0.3 %) is caught by the quick mode in 4 of 6 sectio
 |---|---|
 | Unit: pushers (`test_pushers`) | Identities: `imp` = HC to 5·10⁻¹⁴ and `imp_rr`(ν=0) = Vay exactly, over 10⁶ random states. Force-free γ = 2·10⁴ particle: Vay/HC/IMP exact, Boris drifts. Radiation-reaction energy loss equals ∫ν u·v dt to 0.05 %. |
 | Unit: Bessel functions K₁/₃, K₂/₃, IntK₁/₃ (`test_bessel`, for the SF-QED rates) | vs 40-digit references at x = 10⁻⁸ … 700: K 1.6·10⁻¹³, IntK 2.3·10⁻¹² (scaled e^x K to x = 700: 3.3·10⁻¹²); jumps at the series/rational switch points 3·10⁻¹³; identities K₁/₃′ = −K₂/₃ − K₁/₃/3x, K₂/₃′ = −K₁/₃ − 2K₂/₃/3x, IntK′ = −K₁/₃ to 10⁻⁹ (finite differences); small- and large-x limits |
-| Unit: nonlinear Compton rates (`test_qed_rates`; eq. 4 of the QED module: w, g, p_f, p_ξ, χ, basis) | coefficients vs mpmath (`tests/qed_reference.py`) at 10 points u = 0.001 … 0.999, χ = 0.1 … 1000: 2·10⁻¹¹; u-integrals W, G, Ξ, K, ∫uw, ∫ug, Gaunt factor g(χ) and equilibrium polarization at χ = 10⁻³ … 100: ≤ 3·10⁻¹⁴; small-χ limits W → 5πχ/2, g → 1, S∞ → −8√3/15; all resolved probabilities ≥ 0 for 10⁶ random states (\|S_f\|, \|ξ\| ≤ 1); sum over final states; electron/positron basis |
+| Unit: nonlinear Compton rates (`test_qed_rates`; the coefficients w, g, p_f, p_ξ, χ, basis) | coefficients vs mpmath (`tests/qed_reference.py`) at 10 points u = 0.001 … 0.999, χ = 0.1 … 1000: 2·10⁻¹¹; u-integrals W, G, Ξ, K, ∫uw, ∫ug, Gaunt factor g(χ) and equilibrium polarization at χ = 10⁻³ … 100: ≤ 3·10⁻¹⁴; small-χ limits W → 5πχ/2, g → 1, S∞ → −8√3/15; all resolved probabilities ≥ 0 for 10⁶ random states (\|S_f\|, \|ξ\| ≤ 1); sum over final states; electron/positron basis |
 | Unit: look-up tables (`test_qed_tables`; `LogTable`, cubic interpolation on logarithmic axes) | generic table exact for cubics in ln x and exp(cubic), power-law extrapolation exact, 4th-order convergence (measured 4.0–4.3); Bessel table (ln(e^y K) on log y, 10⁻⁶ … 700): 2.2·10⁻⁷ / 1.4·10⁻⁸ / 8.6·10⁻¹⁰ at 16 / 32 / 64 points per decade, coefficients through the table 1.5·10⁻⁸; rate table (log χ, 10⁻⁵ … 10⁴, 32 per decade, built in 0.06 s): W, G, Ξ, K, ∫uw, ∫ug ≤ 8·10⁻⁸; R_max an upper bound within 1.4 % through the kink at χ ≈ 25; files (plain text `*.lut`): save/load bit-identical (rate table: load 0.3 ms vs build 60 ms, 48 kB), corrupted files rejected, table kind/version/parameters checked, load-or-build |
-| Unit: photon emission samplers (`test_qed_sampling`): rejection (Algorithm 1, sub-steps with P ≤ p_max) and inversion (optical depth + inverse cumulative spectrum on log χ × logit u) | cumulative spectrum table vs quadrature 6·10⁻⁷ of W; inversion: \|F(u)/F(1) − ξ\| ≤ 8·10⁻⁷ for χ = 10⁻⁴ … 300, s₂ = 0, ±1, ξ = 10⁻⁹ … 1 − 10⁻⁹; spectra of 4·10⁶ rejection trials and 10⁶ inversion samples: χ² = 18 and 23 (20 bins); mean photon numbers over 1000 steps (0.01 … 3 photons per step, s₂ = ±1) within 2σ for both samplers; table files bit-identical |
+| Unit: photon emission samplers (`test_qed_sampling`): rejection (sub-steps with P ≤ p_max) and inversion (optical depth + inverse cumulative spectrum on log χ × logit u) | cumulative spectrum table vs quadrature 6·10⁻⁷ of W; inversion: \|F(u)/F(1) − ξ\| ≤ 8·10⁻⁷ for χ = 10⁻⁴ … 300, s₂ = 0, ±1, ξ = 10⁻⁹ … 1 − 10⁻⁹; spectra of 4·10⁶ rejection trials and 10⁶ inversion samples: χ² = 18 and 23 (20 bins); mean photon numbers over 1000 steps (0.01 … 3 photons per step, s₂ = ±1) within 2σ for both samplers; table files bit-identical |
 | Unit: tridiagonal (M = 16 … 9001) | Thomas, PCR and partition all at round-off level (≤ 7·10⁻¹⁶) |
 | Unit: L₀, L₁ (flux and Dirichlet wall), L₂ with χ, manufactured solutions | second order: measured 1.9–2.0 on uniform and 1.98–2.0 on stretched grids (h₀ = 0.01 → 0.00125, ratio ≤ 1.05) |
 | Cartesian particle rewrite, `modes = 0`, vs the earlier ring version | linear wake and blowout fields agree to 10⁻¹⁰–10⁻¹³; beam energies identical |
@@ -1488,8 +1494,8 @@ statistical checks flag deviations above 4σ or χ²/dof > 2):
 |---|---|
 | Photon number and spectrum without recoil, spin averaged, χ = 0.1, 1, 10 (27k–123k photons) | numbers +1.3σ, +0.9σ, +0.0σ of N T C₀W; spectra χ²/dof 1.7, 1.3, 0.9 (20 bins in u^{1/3}); rejection sampler at χ = 1: +0.05σ, 0.6 |
 | Spin fixed along ±B (s₂ = ±1), χ = 1 | rate ratio 0.9125 ± 0.0040 vs (W + G)/(W − G) = 0.9128; spectrum difference vs 2C₀g: χ²/dof 0.9 |
-| Mean photon Stokes vector ξ₃ vs eq. 22, s₂ = 0, +1, −1 (χ = 1) and s₂ = 0 (χ = 10); ξ₃(u) vs eq. 21 | +1.9σ, +1.0σ, −0.3σ, +0.9σ; χ²/dof ≤ 2; ξ₁ = ξ₂ = 0 exactly |
-| Radiative polarization at fixed χ = 1 from s₂ = +1, 4.2 relaxation times, vs eq. 14 (limit −0.8375) | mixed/inversion, mixed/rejection, pure/inversion, pure/rejection: max deviation 1.4, 0.8, 2.7, 1.9σ |
+| Mean photon Stokes vector ξ₃ vs ∫p_ξ du/∫(w + g s₂)du, s₂ = 0, +1, −1 (χ = 1) and s₂ = 0 (χ = 10); ξ₃(u) vs p_ξ/(w + g s₂) | +1.9σ, +1.0σ, −0.3σ, +0.9σ; χ²/dof ≤ 2; ξ₁ = ξ₂ = 0 exactly |
+| Radiative polarization at fixed χ = 1 from s₂ = +1, 4.2 relaxation times, vs the mean spin equation (limit −0.8375) | mixed/inversion, mixed/rejection, pure/inversion, pure/rejection: max deviation 1.4, 0.8, 2.7, 1.9σ |
 | Deterministic radiative polarization (`qed.model = continuous`, `classical`) at fixed χ = 1 from S = (0.6, −0.48, 0.64) in (e₂, e₁, e_v), 4 relaxation times, vs the mean spin equation (scipy integrals; classical: χ³ rates) | all three components to 4·10⁻¹¹ and 8·10⁻¹¹ (s₂ → −0.8165 towards −0.8375; classical −0.9041 towards −0.9238) |
 | Energy loss with recoil, χ₀ = 0.1 → 0.07 | ⟨γ⟩(t) vs the ODE dγ/dt = −P(γ) within 0.3 %; photon energy = electron energy loss to 7·10⁻⁹ (print precision); inversion vs rejection +0.85σ |
 | χ₀ = 1 (strong straggling): Δt = 1 vs 0.25 (sub-cycled push) | final ⟨γ⟩ −1.0σ, γ_rms 0.8 % (8000 particles: Δt = 0.25 vs 0.0625 +0.8σ, p_max 0.1 vs 0.01 0.0σ) |
@@ -1564,10 +1570,10 @@ focusing gradient at r = 0.01 is 0.88 instead of 0.5.
 ## 8. Examples
 
 - `examples/blowout_basic.in`: single quasi-static solve of a blowout.
-- `examples/QED/`: photon emission (strong-field QED) in constant fields: Larmor motion with radiation
-  losses, photon spectra at fixed χ, spin dependence, Sokolov–Ternov polarization, photon polarization
-  (the single-particle simulations of the QED module paper), with `analyze.py` for the comparison with
-  the theory; see `examples/QED/README.md`.
+- `examples/QED/`: photon emission (strong-field QED): Larmor motion with radiation losses, photon spectra
+  at fixed χ, spin dependence, Sokolov–Ternov polarization, the photon polarization spectrum, betatron
+  oscillations with radiation losses and a PWFA with a 10 TeV witness, with `analyze.py` for the comparison
+  with the theory; see `examples/QED/README.md`.
 - `examples/pwfa_ion_motion.in`: driver plus a strongly pinched,
   low-emittance witness with mobile ions (100 steps, a few minutes on
   2 cores).

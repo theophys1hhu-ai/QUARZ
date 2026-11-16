@@ -1,4 +1,4 @@
-// Unit test of src/QEDRates.*: nonlinear Compton coefficients (eq. 4), chi, basis, u-integrals.
+// Unit test of src/QEDRates.*: nonlinear Compton coefficients (C), chi, basis, u-integrals.
 //  1. coefficients w, g, p_f, p_xi at 10 points (u, chi) vs mpmath (tests/qed_reference.py rates)
 //  2. u-integrals W, G, Xi, K, Wu, Gu, gaunt g(chi), polarization limit at chi = 1e-3 ... 100 vs mpmath
 //  3. small-chi limits: W -> 5 pi chi / 2, G -> -3 pi chi^2 / 4, g(chi) -> 1, S_inf -> -8 sqrt(3)/15
@@ -45,7 +45,7 @@ static const double REF_INT[][9] = {
 };
 
 static void pointwise() {
-    std::printf("1. Coefficients of eq. 4 at 10 points (u, chi), u = 0.001 ... 0.999, chi = 0.1 ... 1000\n");
+    std::printf("1. Coefficients (C) at 10 points (u, chi), u = 0.001 ... 0.999, chi = 0.1 ... 1000\n");
     double e = 0;
     for (const auto& r : REF_COEF) {
         const Coef c = coefficients(r[0], r[1]);
@@ -167,7 +167,7 @@ static void sum_rule() {
         e = std::fmax(e, rel(s, rate(c, b, S)));
     }
     char m[160];
-    std::snprintf(m, sizeof m, "sum over S_f = +-n, xi = +-m of eq. 3 = w + <g, S_i>: max rel. %.1e", e);
+    std::snprintf(m, sizeof m, "sum over S_f = +-n, xi = +-m of the resolved rate (R) = w + <g, S_i>: max rel. %.1e", e);
     check(e < 1e-14, m);
 }
 

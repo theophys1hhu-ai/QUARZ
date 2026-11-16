@@ -1,26 +1,28 @@
 // Strong-field QED: spin- and polarization-resolved nonlinear Compton (photon emission) rate in the
 // locally-constant-field approximation, for an electron or positron (|q| = e, m = m_e).
-// Reference: O. Mathiak, A. Pukhov et al., QED module for QV3D (eqs. 2-8), following Li et al.,
-// PRL 122, 154801 (2019) and PRL 124, 014801 (2020).
+// References: V. N. Baier, V. M. Katkov, V. M. Strakhovenko, Electromagnetic Processes at High Energies
+// in Oriented Single Crystals (World Scientific, 1998) (the LCFA emission rate); its spin- and
+// polarization-resolved form: Y.-F. Li et al., PRL 122, 154801 (2019) (electron spin) and PRL 124,
+// 014801 (2020) (photon polarization); D. Seipt et al., PRA 98, 023417 (2018) (radiative polarization).
 //
 // Code units: time 1/omega_p, momentum m c, fields m c omega_p / e. One dimensionless constant,
 //   eta = hbar omega_p / (m c^2)        (eta_from_n0_cm3),
 // gives the quantum parameter and the rate prefactor:
-//   chi = eta sqrt((gamma E + u x B)^2 - (u.E)^2)                   (eq. 2, u = gamma v = p / m c)
+//   chi = eta sqrt((gamma E + u x B)^2 - (u.E)^2)                   (u = gamma v = p / m c)
 //   C0  = alpha / (sqrt(3) pi eta gamma)  [omega_p]                  (rate_prefactor)
 //
 // Fully resolved emission probability per unit time and photon energy fraction u = eps_gamma / eps_e:
-//   d2W / du dt = C0/4 (w + <g, S_i> + <p_f, S_f> + <p_xi, xi>)      (eq. 3)
+//   d2W / du dt = C0/4 (w + <g, S_i> + <p_f, S_f> + <p_xi, xi>)      (R)
 // summed over the final spin S_f and photon polarization (Stokes vector xi):  C0 (w + <g, S_i>).
 // With y = 2u / (3 (1-u) chi) and K = K(y) the Bessel functions of Bessel.hpp (standard normalization;
-// the 1/(sqrt(3) pi) is in C0), the coefficients of eq. 4 are
-//   w   = (u^2 - 2u + 2)/(1-u) K_{2/3} - IntK_{1/3}                                    (4a)
-//   g   = -u K_{1/3} e2                                                                (4b)
+// the 1/(sqrt(3) pi) is in C0), the coefficients (C) are
+//   w   = (u^2 - 2u + 2)/(1-u) K_{2/3} - IntK_{1/3}
+//   g   = -u K_{1/3} e2
 //   p_f = -u/(1-u) K_{1/3} e2 + [2 K_{2/3} - IntK_{1/3}] S_i
-//         + u^2/(1-u) [K_{2/3} - IntK_{1/3}] <S_i, e_v> e_v                             (4c-e)
+//         + u^2/(1-u) [K_{2/3} - IntK_{1/3}] <S_i, e_v> e_v
 //   p_xi = ( u/(1-u) K_{1/3} <S_i, e1>,
 //            [(2u - u^2)/(1-u) K_{2/3} - u IntK_{1/3}] <S_i, e_v>,
-//            K_{2/3} - u/(1-u) K_{1/3} <S_i, e2> )                                        (4f-h)
+//            K_{2/3} - u/(1-u) K_{1/3} <S_i, e2> )
 // in the orthonormal basis (e1, e2, e_v): e_v along the momentum, e1 along the transverse part of the
 // Lorentz force q (E + v x B) (so the charge sign enters through e1), e2 = e_v x e1. Stokes vector
 // (xi_1, xi_2, xi_3): linear polarization at 45 degrees, circular, linear along e1 (+1) / e2 (-1).
@@ -99,10 +101,10 @@ KOKKOS_INLINE_FUNCTION Real y_arg(Real u, Real chi) {
     return Real(2) * u / (Real(3) * (Real(1) - u) * chi);
 }
 
-// The scalar coefficients of eq. 4 at (u, chi):
-//   w (4a); g: g_rad = g e2 (4b);
-//   p_f  = f2 e2 + fs S + fv <S, e_v> e_v                                (4c-e)
-//   p_xi = (x1 <S, e1>, x2 <S, e_v>, x3 + x3s <S, e2>)                   (4f-h)
+// The scalar coefficients (C) at (u, chi):
+//   w; g: g_rad = g e2;
+//   p_f  = f2 e2 + fs S + fv <S, e_v> e_v
+//   p_xi = (x1 <S, e1>, x2 <S, e_v>, x3 + x3s <S, e2>)
 struct Coef {
     Real w = 0, g = 0;
     Real f2 = 0, fs = 0, fv = 0;
@@ -158,19 +160,20 @@ KOKKOS_INLINE_FUNCTION Real g_rad(Real u, Real chi) { return coefficients(u, chi
 KOKKOS_INLINE_FUNCTION Real rate(const Coef& c, const Basis& b, const V3& S) {
     return c.w + c.g * push::dot(S, b.e2);
 }
-// spin quantization vector p_f (eqs. 4c-e)
+// spin quantization vector p_f
 KOKKOS_INLINE_FUNCTION V3 p_f(const Coef& c, const Basis& b, const V3& S) {
     return c.f2 * b.e2 + c.fs * S + (c.fv * push::dot(S, b.ev)) * b.ev;
 }
-// photon polarization vector p_xi (eqs. 4f-h), components in the Stokes basis
+// photon polarization vector p_xi, components in the Stokes basis
 KOKKOS_INLINE_FUNCTION V3 p_xi(const Coef& c, const Basis& b, const V3& S) {
     return V3{c.x1 * push::dot(S, b.e1), c.x2 * push::dot(S, b.ev), c.x3 + c.x3s * push::dot(S, b.e2)};
 }
-// fully resolved rate per unit u and C0 (eq. 3): (w + <g, S_i> + <p_f, S_f> + <p_xi, xi>) / 4
+// fully resolved rate (R) per unit u and C0: (w + <g, S_i> + <p_f, S_f> + <p_xi, xi>) / 4
 KOKKOS_INLINE_FUNCTION Real rate_resolved(const Coef& c, const Basis& b, const V3& Si, const V3& Sf, const V3& xi) {
     return Real(0.25) * (rate(c, b, Si) + push::dot(p_f(c, b, Si), Sf) + push::dot(p_xi(c, b, Si), xi));
 }
-// mixed-state final spin (eq. 7) and photon Stokes vector (eq. 20) of an emission
+// mixed-state final spin S_f = p_f / (w + <g, S>) and photon Stokes vector xi = p_xi / (w + <g, S>) of an
+// emission (the expectation values of S_f and xi under (R))
 KOKKOS_INLINE_FUNCTION V3 spin_after_emission(const Coef& c, const Basis& b, const V3& S) {
     return (Real(1) / rate(c, b, S)) * p_f(c, b, S);
 }
@@ -178,7 +181,7 @@ KOKKOS_INLINE_FUNCTION V3 stokes_of_photon(const Coef& c, const Basis& b, const 
     return (Real(1) / rate(c, b, S)) * p_xi(c, b, S);
 }
 
-// Sampling density in r = u^{1/3} (Algorithm 1: u = r^3, du = 3 r^2 dr), per C0:
+// Sampling density in r = u^{1/3} (rejection sampler: u = r^3, du = 3 r^2 dr), per C0:
 //   3 r^2 (w(r^3) + g(r^3) s2),  s2 = <S, e2>.
 // Finite at r = 0: 3 Gamma(2/3) (3 chi)^{2/3}. Its integral over r in [0, 1] is W + G s2.
 KOKKOS_INLINE_FUNCTION Real rate_r(Real r, Real chi, Real s2) {
@@ -366,7 +369,7 @@ Integrals integrals(double chi);
 // quantum correction of the radiated power, P = P_cl g(chi), P_cl = (2/3) alpha m^2 c^4 chi^2 / hbar:
 // g = Wu / ((2 pi / sqrt 3) chi^2)  ->  1 for chi -> 0
 double gaunt(double chi);
-// equilibrium polarization along e2 in a constant field (eq. 14): -SA/SB -> -8 sqrt(3)/15
+// equilibrium polarization along e2 in a constant field: -SA/SB -> -8 sqrt(3)/15 (Sokolov-Ternov)
 double polarization_limit(double chi);
 // max over r in [0, 1] of the sampling density for the least favourable spin, 3 r^2 (w + |g|)
 // (grid of 400 points and golden-section refinement, relative accuracy ~1e-10)

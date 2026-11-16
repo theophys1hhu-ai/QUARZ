@@ -1,11 +1,11 @@
-# Photon polarization spectrum and its dependence on the initial electron spin (QED module paper, Fig. 5):
+# Photon polarization spectrum and its dependence on the initial electron spin:
 # Stokes parameter xi_3 (linear polarization along e1 / e2) of the photons vs their energy, for electrons
 # with gamma = 1e7 at chi = 0.1 (B = B_x = 0.0041492; fixed momentum and fixed spin) and the initial spins
 #   unpol: no spin (s2 = 0, "random" spin),   par: s2 = +1 (along B),   anti: s2 = -1 (antiparallel to B)
 # (e2 = +x for electrons moving along z in B_x). With mixed states every photon carries the expectation
-# value xi = p_xi / (w + g s2), eq. 20, so xi_3(u) follows eq. 21:
+# value xi = p_xi / (w + g s2), so xi_3(u) follows
 #   xi_3(u) = (K_2/3(y) - u/(1-u) K_1/3(y) s2) / (w + g s2),   u = photon energy / (gamma m c^2)
-# (paper: 0.5 at u -> 0; at 6e6 m c^2: 0.51, -0.35, 0.97 for s2 = 0, +1, -1).
+# (0.5 at u -> 0; at 6e6 m c^2: 0.51, -0.35, 0.97 for s2 = 0, +1, -1).
 # Photons above u ~ 0.3 are rare at chi = 0.1 (0.4 %; 1e-5 above u = 0.55), so every spin has two beams:
 # X writes all its photons (1e4 electrons, ~1e5 photons) and X_tail (25 x more electrons) only those above
 # 3e6 m c^2 (X_tail.photon_min_energy: the others are emitted and counted in qed.txt, not written).

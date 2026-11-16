@@ -1,4 +1,4 @@
-# Larmor motion with strong radiation losses (QED module paper, Fig. 1 right): as larmor.in, but
+# Larmor motion with strong radiation losses: as larmor.in, but
 # p_perp = 200 m c in B = 50 e_z (radius 4 again), chi_0 = eta p_perp B = 0.024. The electrons lose
 # half of their energy within t = 1e5 and spiral inwards (the radius p_perp / B shrinks with p_perp).
 # Expected: gamma 1e5 -> ~4.8e4 at t = 1e5 (synchrotron loss with g(chi), see larmor.in); the

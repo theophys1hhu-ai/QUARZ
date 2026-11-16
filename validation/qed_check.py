@@ -6,9 +6,9 @@ Setup (qed.in): electrons along z in a constant field B along x, no plasma field
 for electrons e2 = +x (along B), so s2 = <s_x>.
 usage: qed_check.py spectrum DIR S            photon number and spectrum vs C0 (w + g S) (no recoil)
        qed_check.py spindiff DIR_plus DIR_minus   spectrum difference (S = +1) - (S = -1) vs 2 C0 g
-       qed_check.py spin DIR S0               <s2>(t) vs eq. 14 (no recoil)
+       qed_check.py spin DIR S0               <s2>(t) vs the mean spin equation (no recoil)
        qed_check.py spindet DIR MODEL         deterministic spin relaxation (continuous | classical), 3 components
-       qed_check.py polar DIR S               mean Stokes vector vs eq. 22, xi_3(u) vs eq. 21 (fixed spin)
+       qed_check.py polar DIR S               mean Stokes vector and xi_3(u) vs p_xi / (w + g s2) (fixed spin)
        qed_check.py energy DIR [model]        <gamma>(t) vs the ODE d gamma/dt = -P(gamma); energy balance
                                               (model continuous | classical: deterministic, g = 1 for classical)
        qed_check.py fixed DIR                 momentum_push = 0, spin_precession = 0: p and s unchanged
@@ -55,7 +55,7 @@ def deck(d):
     return p
 
 
-# ---- the coefficients of eq. 4 (QEDRates.hpp), written out again
+# ---- the coefficients (C) of QEDRates.hpp, written out again
 def bessel(u, chi):
     y = 2 * u / (3 * (1 - u) * chi)
     if y > 600:
@@ -145,7 +145,7 @@ def spin(d, S0):
     s = qr.read_spinlog(d + "/spin.txt")["e"]
     t, sx = s["t"], s["sx"]
     I = integrals(p["chi"])
-    # eq. 14: dS/dt = C0 [(Xi - W) S + K - G]
+    # mean spin equation along e2: dS/dt = C0 [(Xi - W) S + K - G]
     a, b = p["C0"] * (I["fs"] - I["w"]), p["C0"] * (I["f2"] - I["g"])
     Sinf = -b / a
     ref = (S0 - Sinf) * np.exp(a * t) + Sinf
@@ -153,8 +153,8 @@ def spin(d, S0):
     N = nlive(d)
     sig = np.sqrt(np.maximum(1 - ref ** 2, 0.02) / N)
     z = np.abs(sx - ref) / sig
-    print("  chi = %.3g, S0 = %+.0f: <s2>(t) vs eq. 14 over %.1f relaxation times: max |diff| %.4f (%.1f sigma);"
-          " final %.4f (eq. 14: %.4f, limit S_inf = %.4f)%s" % (p["chi"], S0, -a * t[-1], np.max(np.abs(sx - ref)),
+    print("  chi = %.3g, S0 = %+.0f: <s2>(t) vs the mean spin equation over %.1f relaxation times: max |diff| %.4f (%.1f sigma);"
+          " final %.4f (theory: %.4f, limit S_inf = %.4f)%s" % (p["chi"], S0, -a * t[-1], np.max(np.abs(sx - ref)),
                                                                  np.max(z), sx[-1], ref[-1], Sinf, mark(np.max(z) > 4.5)))
 
 
@@ -193,7 +193,7 @@ def polar(d, S):
     m = [np.mean(ph[k]) for k in ("xi1", "xi2", "xi3")]
     n = len(ph["xi3"])
     se = np.std(ph["xi3"]) / np.sqrt(n)
-    # xi_3(u) in 10 bins of r vs the rate-weighted eq. 21
+    # xi_3(u) in 10 bins of r vs the rate-weighted theory
     u = ph["energy"] / p["gamma"]
     e = np.linspace(0, 1, 11)
     c2, nb = 0.0, 0
@@ -207,8 +207,8 @@ def polar(d, S):
         c2 += ((np.mean(ph["xi3"][sel]) - ref) / max(sd, 1e-12)) ** 2
         nb += 1
     c2 /= max(nb, 1)
-    print("  chi = %.3g, s2 = %+.0f: <xi_3> = %.5f +- %.5f, eq. 22: %.5f (%+.2f sigma); <xi_1>, <xi_2> = %.1e, %.1e (0);"
-          " xi_3(u) vs eq. 21: chi^2/dof = %.2f (%d bins)%s" % (chi, S, m[2], se, num3 / den, (m[2] - num3 / den) / se,
+    print("  chi = %.3g, s2 = %+.0f: <xi_3> = %.5f +- %.5f, theory: %.5f (%+.2f sigma); <xi_1>, <xi_2> = %.1e, %.1e (0);"
+          " xi_3(u) vs theory: chi^2/dof = %.2f (%d bins)%s" % (chi, S, m[2], se, num3 / den, (m[2] - num3 / den) / se,
                                                                 m[0], m[1], c2, nb,
                                                                 mark(abs(m[2] - num3 / den) > 4 * se or c2 > 2 or
                                                                      max(abs(m[0]), abs(m[1])) > 1e-12)))

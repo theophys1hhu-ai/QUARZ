@@ -1,10 +1,10 @@
-# Dependence of the emission on the initial electron spin (QED module paper, Fig. 3): electrons with
+# Dependence of the emission on the initial electron spin: electrons with
 # gamma = 1e7 in B = B_x at chi = 1, momentum and spin fixed, three beams in one run:
 #   par: s2 = +1 (spin along B),   anti: s2 = -1 (antiparallel),   unpol: no spin (s2 = 0)
 # (e2 = +x for electrons moving along z in B_x). Expected: dN/(dt du) = C0 (w + g s2) with g = -u K_1/3(y),
 # so dN_anti/du - dN_par/du = -2 C0 g N_e T > 0 (the spin along the field emits less) and the total rates
 # are in the ratio (W + G)/(W - G) = 0.913 at chi = 1. Photon energies in GeV: u gamma 0.511e-3 (u = 1: 5.1 TeV).
-# chi = 0.1 (the other curve of Fig. 3):  "fields.external_B=0.0041492 0 0" time.steps=800 output.dir=out_spin_chi0.1
+# chi = 0.1:  "fields.external_B=0.0041492 0 0" time.steps=800 output.dir=out_spin_chi0.1
 # (W(0.1) = 0.73 instead of 5.63: 8 x longer for the same number of photons).
 # Analysis: python3 analyze.py spindiff spin_dependence.in out_spin_dependence
 units.n0_cm3 = 1.1e21
