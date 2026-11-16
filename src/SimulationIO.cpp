@@ -770,8 +770,9 @@ void Simulation::setup_qed() {
     photon_files_.assign(beams_.size(), nullptr);
     for (const auto& b : beams_) any_qed_ = any_qed_ || b->qed();
     if (!any_qed_) return;
-    // look-up tables: built once and shared by all beams; with qed.table_dir rank 0 loads them from there
-    // (or builds and saves them) and the other ranks load them afterwards
+    // look-up tables: built once and shared by all beams. With qed.table_dir rank 0 loads them from there
+    // (or builds and saves them) and the other ranks load them afterwards; without it every rank builds
+    // them in memory (~0.2 s)
     const std::string dir = cfg_.get_string("qed.table_dir", "");
     auto path = [&](const char* f) { return dir.empty() ? std::string() : dir + "/" + f; };
     if (!dir.empty() && comm_.root()) std::filesystem::create_directories(dir);
@@ -782,8 +783,8 @@ void Simulation::setup_qed() {
     for (int pass = 0; pass < 2; ++pass) {
         if ((pass == 0) == comm_.root()) {
             const bool write = comm_.root();
-            bt = qed::bessel_table(path("qed_bessel.lut"), 1e-6, qed::Y_MAX, 32, write, &status[0]);
-            rt = qed::rate_table(path("qed_rates.lut"), 1e-5, 1e4, 32, write, &status[1]);
+            bt = qed::bessel_table(path("qed_bessel.lut"), qed::BESSEL_Y_MIN, qed::Y_MAX, qed::TABLE_POINTS_PER_DECADE, write, &status[0]);
+            rt = qed::rate_table(path("qed_rates.lut"), qed::RATE_CHI_MIN, qed::RATE_CHI_MAX, qed::TABLE_POINTS_PER_DECADE, write, &status[1]);
             st = qed::spectrum_table(path("qed_spectrum.lut"), qed::SpectrumTableParams(), write, &status[2]);
         }
         if (!dir.empty()) comm_.barrier();

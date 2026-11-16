@@ -33,6 +33,9 @@
 #include "Pushers.hpp"   // V3
 
 #include <cmath>
+#include <cstdio>
+#include <map>
+#include <string>
 #include <vector>
 
 namespace quarz {
@@ -42,12 +45,14 @@ using push::V3;
 
 constexpr double ALPHA = 7.2973525693e-3;              // fine-structure constant (CODATA 2018)
 constexpr double LAMBDA_C_CM = 3.8615926796e-11;        // reduced Compton wavelength hbar / (m_e c), cm
-constexpr double Y_MAX = 700;
-constexpr double RMAX_SAFETY = 1.01;                    // margin of the tabulated bound Rmax (RateTable)                           // y beyond which all K(y) are set to 0 (e^-700)
+constexpr double Y_MAX = 700;                           // y beyond which all K(y) are taken as 0 (e^-700)
+constexpr double RMAX_SAFETY = 1.01;                    // margin of the tabulated bound Rmax (RateTable)
+// default ranges and resolution of the look-up tables (Bessel functions in y, u-integrals in chi)
+constexpr double BESSEL_Y_MIN = 1e-6, RATE_CHI_MIN = 1e-5, RATE_CHI_MAX = 1e4, TABLE_POINTS_PER_DECADE = 32;
 
 // eta = hbar omega_p / (m_e c^2) = lambda_C k_p for the plasma density n0 (cm^-3)
 inline double eta_from_n0_cm3(double n0) {
-    const double kp = 5.64146e4 * std::sqrt(n0) / 2.99792458e10;   // 1/cm (as in Beam.cpp)
+    const double kp = 5.64146e4 * std::sqrt(n0) / 2.99792458e10;   // omega_p / c in 1/cm
     return LAMBDA_C_CM * kp;
 }
 
@@ -214,7 +219,8 @@ struct BesselTable {
         }
     }
 };
-BesselTable make_bessel_table(double y_min = 1e-6, double y_max = Y_MAX, double points_per_decade = 32);
+BesselTable make_bessel_table(double y_min = BESSEL_Y_MIN, double y_max = Y_MAX,
+                              double points_per_decade = TABLE_POINTS_PER_DECADE);
 
 // coefficients with the Bessel functions from the table
 KOKKOS_INLINE_FUNCTION Coef coefficients(Real u, Real chi, const BesselTable& T) {
@@ -263,12 +269,69 @@ struct RateTable {
         return r;
     }
 };
-RateTable make_rate_table(double chi_min = 1e-5, double chi_max = 1e4, double points_per_decade = 32);
+RateTable make_rate_table(double chi_min = RATE_CHI_MIN, double chi_max = RATE_CHI_MAX,
+                          double points_per_decade = TABLE_POINTS_PER_DECADE);
 
 // ---- table files (plain text, LogTable format, "*.lut" by convention; exact round trip).
-// The files carry meta entries: table (qed.bessel / qed.rate), version (TABLE_VERSION, raised whenever
-// the tabulated functions change), the effective points_per_decade, and for the rate table rmax_safety.
+// The files carry meta entries: table (qed.bessel / qed.rate / qed.spectrum), version (TABLE_VERSION,
+// raised whenever the tabulated functions change), the effective points_per_decade, for the rate table
+// rmax_safety, for the spectrum table its u axis.
 constexpr int TABLE_VERSION = 2;   // 2: spin relaxation columns SB, SA, SL in the rate table
+
+namespace detail {
+// "%.17g": a double that reads back exactly
+inline std::string exact(double v) {
+    char b[32];
+    std::snprintf(b, sizeof b, "%.17g", v);
+    return b;
+}
+inline std::string meta_get(const std::map<std::string, std::string>& m, const char* key) {
+    auto it = m.find(key);
+    return it == m.end() ? std::string() : it->second;
+}
+// "" if the meta entries identify a table of this kind and of TABLE_VERSION, else the reason
+inline std::string check_meta(const std::map<std::string, std::string>& m, const std::string& kind) {
+    if (meta_get(m, "table") != kind) return "not a " + kind + " table";
+    const std::string v = meta_get(m, "version");
+    if (v != std::to_string(TABLE_VERSION))
+        return "table version " + (v.empty() ? std::string("?") : v) + ", expected " + std::to_string(TABLE_VERSION);
+    return "";
+}
+// The table from path if load(path) succeeds (it throws for a file of another kind or version) and
+// matches(table) (same parameters); otherwise build() it and, if write, save(table, path).
+// status: "loaded", "built", "built (saved)" or "built (<reason>[; saved])".
+template <class Load, class Matches, class Build, class Save>
+auto load_or_build(const std::string& path, bool write, std::string* status, Load load, Matches matches, Build build,
+                   Save save) -> decltype(build()) {
+    std::string why = "no file";
+    if (!path.empty()) {
+        if (FILE* fp = std::fopen(path.c_str(), "r")) {
+            std::fclose(fp);
+            try {
+                auto T = load(path);
+                if (matches(T)) {
+                    if (status) *status = "loaded";
+                    return T;
+                }
+                why = "different range or points per decade";
+            } catch (const std::exception& e) {
+                why = e.what();
+            }
+        }
+    }
+    auto T = build();
+    std::string st = "built";
+    if (!path.empty() && write) {
+        save(T, path);
+        st += why == "no file" ? " (saved)" : " (" + why + "; saved)";
+    } else if (!path.empty()) {
+        st += " (" + why + ")";
+    }
+    if (status) *status = st;
+    return T;
+}
+} // namespace detail
+
 void save_bessel_table(const BesselTable& T, const std::string& path);
 void save_rate_table(const RateTable& T, const std::string& path);
 // throw if the file is not a table of that kind and version
@@ -278,10 +341,10 @@ RateTable load_rate_table(const std::string& path);
 // version and parameters (same axis ends and number of points); otherwise built, and saved to path if write (with MPI: write on one rank only).
 // An empty path just builds. status (optional) receives "loaded", "built", "built (saved)" or
 // "built (<reason>)".
-BesselTable bessel_table(const std::string& path, double y_min = 1e-6, double y_max = Y_MAX,
-                         double points_per_decade = 32, bool write = true, std::string* status = nullptr);
-RateTable rate_table(const std::string& path, double chi_min = 1e-5, double chi_max = 1e4,
-                     double points_per_decade = 32, bool write = true, std::string* status = nullptr);
+BesselTable bessel_table(const std::string& path, double y_min = BESSEL_Y_MIN, double y_max = Y_MAX,
+                         double points_per_decade = TABLE_POINTS_PER_DECADE, bool write = true, std::string* status = nullptr);
+RateTable rate_table(const std::string& path, double chi_min = RATE_CHI_MIN, double chi_max = RATE_CHI_MAX,
+                     double points_per_decade = TABLE_POINTS_PER_DECADE, bool write = true, std::string* status = nullptr);
 
 // ---- u-integrals (host; quadrature). All per C0, i.e. the rates are C0 times these.
 struct Integrals {
@@ -303,7 +366,7 @@ Integrals integrals(double chi);
 // quantum correction of the radiated power, P = P_cl g(chi), P_cl = (2/3) alpha m^2 c^4 chi^2 / hbar:
 // g = Wu / ((2 pi / sqrt 3) chi^2)  ->  1 for chi -> 0
 double gaunt(double chi);
-// equilibrium polarization along e2 in a constant field (eq. 14): -(K - G)/(Xi - W) -> -8 sqrt(3)/15
+// equilibrium polarization along e2 in a constant field (eq. 14): -SA/SB -> -8 sqrt(3)/15
 double polarization_limit(double chi);
 // max over r in [0, 1] of the sampling density for the least favourable spin, 3 r^2 (w + |g|)
 // (grid of 400 points and golden-section refinement, relative accuracy ~1e-10)

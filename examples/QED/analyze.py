@@ -45,7 +45,7 @@ class Run:
         self.eta = 3.8615926796e-11 * 5.64146e4 * np.sqrt(self.n0) / 2.99792458e10   # hbar omega_p / m c^2
         self.gamma = float(d[beam + ".gamma"])
         self.B = np.array([float(v) for v in d.get("fields.external_B", "0 0 0").split()])
-        self.dt, self.steps = float(d["time.dt"]), int(d["time.steps"])
+        self.dt = float(d["time.dt"])
         self.p_perp = self.gamma * np.hypot(float(d.get(beam + ".xp0", 0)), float(d.get(beam + ".yp0", 0)))
         sv = [float(v) for v in d.get(beam + ".spin", "0 0 0").split()]
         self.s2 = sv[0] / max(np.linalg.norm(sv), 1e-300) if any(sv) else 0.0   # e2 = +x for electrons along z in B_x
@@ -77,6 +77,13 @@ def n_electrons_time(out, run, beam="e"):
     return b["alive"][0], len(q["step"]) * run.dt
 
 
+def gaunt_interp(chi_max):
+    """g(chi) = int u w du / ((2 pi/sqrt 3) chi^2) on a log grid up to chi_max, as a function"""
+    chis = np.geomspace(1e-6, chi_max * 1.01, 40)
+    gc = np.array([uint(lambda u, c=c: u * coef(u, c)["w"]) / (2 * np.pi / np.sqrt(3) * c * c) for c in chis])
+    return lambda c: np.interp(np.log(np.maximum(c, 1e-6)), np.log(chis), gc)
+
+
 def larmor(d, out):
     run = Run(d)
     b = qr.read_beamlog(os.path.join(out, "beams.txt"))["e"]
@@ -84,9 +91,7 @@ def larmor(d, out):
     Bz = run.B[2]
     # the recoil keeps the direction: p_perp / gamma stays constant, chi = eta p_perp B
     chi = lambda gam: run.eta * run.p_perp * gam / run.gamma * Bz
-    chis = np.geomspace(1e-5, chi(run.gamma) * 1.01, 40)
-    gc = np.array([uint(lambda u, c=c: u * coef(u, c)["w"]) / (2 * np.pi / np.sqrt(3) * c * c) for c in chis])
-    gfun = lambda c: np.interp(np.log(c), np.log(chis), gc)
+    gfun = gaunt_interp(chi(run.gamma))
     rhs = lambda tt, y: [-(2 * ALPHA / (3 * run.eta)) * chi(y[0]) ** 2 * gfun(chi(y[0]))]
     sol = si.solve_ivp(rhs, (0, t[-1]), [run.gamma], t_eval=t, rtol=1e-9)
     r0, r1 = run.p_perp / Bz, run.p_perp / Bz * g[-1] / run.gamma
@@ -183,7 +188,6 @@ def spindiff(d, out):
 def polspec(d, out):
     """photon_polarization_spectrum.in (Fig. 5): xi_3 vs photon energy for the initial spins s2 = 0, +1, -1;
     beam X writes all photons, beam X_tail (more electrons) only the hard ones (X_tail.photon_min_energy)"""
-    rows = []
     edges = np.linspace(0, 6e6, 25)   # photon energy in m c^2 (the paper's axis)
     curves = {}
     for b, S in (("unpol", 0), ("par", 1), ("anti", -1)):
@@ -264,13 +268,6 @@ def polarization(d, out):
         ax.set_xlabel("u"); ax.set_ylabel("xi_3"); ax.set_title("gamma = %.3g, s2 = %+.0f" % (run.gamma, S)); ax.legend()
         return fig
     plot(out, "polarization", draw)
-
-
-def gaunt_interp(chi_max):
-    """g(chi) = int u w du / ((2 pi/sqrt 3) chi^2) on a log grid up to chi_max, as a function"""
-    chis = np.geomspace(1e-6, chi_max * 1.01, 40)
-    gc = np.array([uint(lambda u, c=c: u * coef(u, c)["w"]) / (2 * np.pi / np.sqrt(3) * c * c) for c in chis])
-    return lambda c: np.interp(np.log(np.maximum(c, 1e-6)), np.log(chis), gc)
 
 
 def betatron(d, out):

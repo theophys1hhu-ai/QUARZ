@@ -60,21 +60,10 @@ struct ParticleRandom {
 // an emitted photon
 struct Photon {
     Real t;        // time of emission, from the start of the sub-step
-    Real u;        // energy fraction of the emitter
     V3 k;          // momentum (m c), along the emitter's momentum
     V3 stokes;     // (xi_1, xi_2, xi_3) in the basis of the emitter
     Real chi;      // chi of the emitter
 };
-
-// Number of sub-steps of the particle push in a step dt, so that the emission probability in a
-// sub-step stays below p_max (rejection_substeps with the bound Rmax of the rate table).
-KOKKOS_INLINE_FUNCTION int substeps(const Emission& Q, const V3& u, const V3& E, const V3& B, Real dt) {
-    const Real chi_now = chi(u, E, B, Q.eta);
-    if (!(chi_now > Real(0))) return 1;
-    const Real gamma = Kokkos::sqrt(Real(1) + push::dot(u, u));
-    const int n = rejection_substeps(rate_prefactor(gamma, Q.eta) * dt, Q.rates(chi_now).Rmax, Q.p_max);
-    return n < Q.max_substeps ? n : Q.max_substeps;
-}
 
 // A mixed-state vector m (|m| <= 1) measured as a pure state: +m/|m| with probability (1 + |m|)/2,
 // otherwise -m/|m| (the mean stays m).
@@ -116,19 +105,17 @@ KOKKOS_INLINE_FUNCTION Photon emit(const Emission& Q, bool has_spin, Real u_ph, 
     const Real gamma = Kokkos::sqrt(Real(1) + push::dot(p, p));
     const Coef c = coefficients(u_ph, chi_e, Q.bessel);
     const V3 S0 = has_spin ? S : V3{Real(0), Real(0), Real(0)};
-    const Real rate_here = rate(c, b, S0);   // w + <g, S>: normalizes the final states
 
     Photon ph;
     ph.t = t;
-    ph.u = u_ph;
     ph.chi = chi_e;
     ph.k = (u_ph * gamma) * b.ev;
     // photon polarization: expectation value (mixed) or a pure state
-    const V3 stokes = (Real(1) / rate_here) * p_xi(c, b, S0);
+    const V3 stokes = stokes_of_photon(c, b, S0);
     ph.stokes = Q.spin_model == PURE ? collapse(stokes, random()) : stokes;
     // lepton spin after the emission
     if (has_spin && Q.spin_change) {
-        const V3 Sf = (Real(1) / rate_here) * p_f(c, b, S0);
+        const V3 Sf = spin_after_emission(c, b, S0);
         S = Q.spin_model == PURE ? collapse(Sf, random()) : Sf;
     }
     // recoil: energy (1 - u) eps, same direction
@@ -178,9 +165,9 @@ KOKKOS_INLINE_FUNCTION void relax_spin(const Emission& Q, const V3& E, const V3&
     Real SB, SA, SL;
     if (Q.model == CLASSICAL) {
         const Real c3 = chi_e * chi_e * chi_e;
-        SB = Real(15.0 / 8.0 * 3.14159265358979323846) * c3;
-        SA = Real(1.7320508075688772935 * 3.14159265358979323846) * c3;
-        SL = Real(35.0 / 24.0 * 3.14159265358979323846) * c3;
+        SB = Real(15.0 / 8.0) * PI * c3;
+        SA = Real(bessel::PI_SQRT3) * c3;
+        SL = Real(35.0 / 24.0) * PI * c3;
     } else {
         const RateValues r = Q.rates(chi_e);
         SB = r.SB; SA = r.SA; SL = r.SL;
@@ -237,7 +224,7 @@ KOKKOS_INLINE_FUNCTION void substep(const Emission& Q, bool has_spin, const V3& 
         const Real s2 = has_spin ? push::dot(S, b.e2) : Real(0);
         const Real r1 = random(), r2 = random();
         const Real u_ph = rejection_trial(chi_e, s2, C0 * h, r1, r2, Q.bessel);
-        if (u_ph > Real(0)) {
+        if (u_ph > Real(0)) {   // (the time of a trial is taken as the middle of the sub-step)
             record(emit(Q, has_spin, u_ph, chi_e, b, Real(0.5) * h, p, S, random));
         } else if (has_spin && Q.spin_change) {   // no emission in this trial: eq. 8 (a pure state is measured)
             const V3 m = spin_without_emission(S, b, C0 * h, Q.rates(chi_e));

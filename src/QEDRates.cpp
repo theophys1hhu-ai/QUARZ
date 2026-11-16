@@ -1,9 +1,8 @@
-// u-integrals of the nonlinear Compton coefficients (see QEDRates.hpp), by quadrature in r = u^{1/3}
-// (du = 3 r^2 dr removes the u^{-2/3} singularity of w at u -> 0; the integrands are smooth in r).
+// u-integrals of the nonlinear Compton coefficients, the look-up tables built from them and their files
+// (see QEDRates.hpp). Quadratures in r = u^{1/3}: du = 3 r^2 dr removes the u^{-2/3} singularity of w at
+// u -> 0, and the integrands are smooth in r.
 #include "QEDRates.hpp"
 
-#include <cstdio>
-#include <map>
 #include <stdexcept>
 
 namespace quarz {
@@ -11,10 +10,26 @@ namespace qed {
 
 namespace {
 constexpr double RTOL = 1e-13;
+
 // int_0^1 f(u) du = int_0^1 f(r^3) 3 r^2 dr
 template <class F>
 double u_integral(F f) {
     return integrate([&](double r) { return 3 * r * r * f(r * r * r); }, 0.0, 1.0, RTOL);
+}
+
+// the spin relaxation integrals int_0^1 u^2/(1-u) K du with K = K_{2/3} (SB), K_{1/3} (SA), IntK_{1/3} (SL).
+// They are integrated directly: as differences of the other integrals (W - Xi, G - K) they would cancel
+// to O(chi^3) for small chi.
+enum SpinKernel { K23_KERNEL, K13_KERNEL, IK13_KERNEL };
+double spin_integral(double chi, SpinKernel which) {
+    return u_integral([&](double u) {
+        if (u >= 1) return 0.0;
+        const double y = y_arg(u, chi);
+        if (y >= Y_MAX) return 0.0;
+        double K13, K23, IK13;
+        bessel::synchrotron_functions(y, K13, K23, IK13);
+        return u * u / (1 - u) * (which == K23_KERNEL ? K23 : which == K13_KERNEL ? K13 : IK13);
+    });
 }
 } // namespace
 
@@ -27,17 +42,9 @@ Integrals integrals(double chi) {
     I.K = u_integral([&](double u) { return coefficients(u, chi).f2; });
     I.Wu = u_integral([&](double u) { return u * coefficients(u, chi).w; });
     I.Gu = u_integral([&](double u) { return u * coefficients(u, chi).g; });
-    auto spin_kernel = [&](double u, int which) {   // u^2/(1-u) times K_{2/3}, K_{1/3} or IntK_{1/3}
-        if (u >= 1) return 0.0;
-        const double y = y_arg(u, chi);
-        if (y >= Y_MAX) return 0.0;
-        double K13, K23, IK13;
-        bessel::synchrotron_functions(y, K13, K23, IK13);
-        return u * u / (1 - u) * (which == 0 ? K23 : which == 1 ? K13 : IK13);
-    };
-    I.SB = u_integral([&](double u) { return spin_kernel(u, 0); });
-    I.SA = u_integral([&](double u) { return spin_kernel(u, 1); });
-    I.SL = u_integral([&](double u) { return spin_kernel(u, 2); });
+    I.SB = spin_integral(chi, K23_KERNEL);
+    I.SA = spin_integral(chi, K13_KERNEL);
+    I.SL = spin_integral(chi, IK13_KERNEL);
     return I;
 }
 
@@ -48,25 +55,14 @@ double gaunt(double chi) {
 }
 
 double polarization_limit(double chi) {
-    // K - G = -int u^2/(1-u) K_{1/3} du,  Xi - W = -int u^2/(1-u) K_{2/3} du: integrated directly
-    // (the differences of the separate integrals cancel to O(chi^2) for small chi)
     if (!(chi > 0)) return -8 * std::sqrt(3.0) / 15;
-    auto kern = [&](double u, bool k13) {
-        if (u >= 1) return 0.0;
-        const double y = y_arg(u, chi);
-        if (y >= Y_MAX) return 0.0;
-        double K13, K23, IK13;
-        bessel::synchrotron_functions(y, K13, K23, IK13);
-        return u * u / (1 - u) * (k13 ? K13 : K23);
-    };
-    const double A = u_integral([&](double u) { return kern(u, true); });
-    const double B = u_integral([&](double u) { return kern(u, false); });
-    return -A / B;
+    return -spin_integral(chi, K13_KERNEL) / spin_integral(chi, K23_KERNEL);
 }
 
 double max_rate_r(double chi) {
     if (!(chi > 0)) return 0.0;
     auto f = [&](double r) { return rate_r(r, chi, -1.0); };   // g < 0: s2 = -1 gives w + |g|
+    // coarse scan, then golden-section search around the best grid point
     const int N = 400;
     int kbest = 0;
     double best = f(0.0);
@@ -83,6 +79,8 @@ double max_rate_r(double chi) {
     }
     return std::max(best, std::max(fc, fd));
 }
+
+// ---- tables
 
 BesselTable make_bessel_table(double y_min, double y_max, double ppd) {
     BesselTable T;
@@ -105,70 +103,35 @@ RateTable make_rate_table(double chi_min, double chi_max, double ppd) {
     return T;
 }
 
+// ---- table files
+
 namespace {
-std::string num(double v) {
-    char b[32];
-    std::snprintf(b, sizeof b, "%.17g", v);
-    return b;
-}
-// meta entries of a table file; points_per_decade is the effective (n - 1) / decades (informational)
-std::map<std::string, std::string> table_meta(const char* kind, const LogTable& t) {
-    std::map<std::string, std::string> m{{"table", kind}, {"version", std::to_string(TABLE_VERSION)},
-                                         {"points_per_decade", num((t.size() - 1) / std::log10(t.axis_max() / t.axis_min()))}};
-    if (std::string(kind) == "qed.rate") m["rmax_safety"] = num(RMAX_SAFETY);
-    return m;
-}
-// number of grid points LogTable::build makes for these parameters
-int grid_points(double lo, double hi, double ppd) {
-    return std::max(4, static_cast<int>(std::ceil(std::log10(hi / lo) * ppd)) + 1);
-}
-// "" if the file's meta identifies a table of this kind and version, else the reason
-std::string check_meta(const char* kind, const std::map<std::string, std::string>& m) {
-    auto get = [&](const char* k) { auto it = m.find(k); return it == m.end() ? std::string() : it->second; };
-    if (get("table") != kind) return "not a " + std::string(kind) + " table";
-    if (get("version") != std::to_string(TABLE_VERSION))
-        return "table version " + (get("version").empty() ? std::string("?") : get("version")) + ", expected " + std::to_string(TABLE_VERSION);
-    if (std::string(kind) == "qed.rate" && get("rmax_safety") != num(RMAX_SAFETY)) return "different rmax_safety";
-    return "";
-}
 const std::vector<std::string> BESSEL_LABELS{"exp(y)K_1/3", "exp(y)K_2/3", "exp(y)IntK_1/3"};
 const std::vector<std::string> RATE_LABELS{"W", "G", "Xi", "K", "Wu", "Gu", "Rmax", "SB", "SA", "SL"};
 
-template <class Tab, class Load, class Build>
-Tab load_or_build(const char* kind, const std::string& path, double lo, double hi, double ppd, bool write,
-                  std::string* status, Load load, Build build, void (*save)(const Tab&, const std::string&)) {
-    std::string why;
-    if (!path.empty()) {
-        if (FILE* fp = std::fopen(path.c_str(), "r")) {
-            std::fclose(fp);
-            try {
-                std::vector<std::string> lab;
-                std::map<std::string, std::string> m;
-                const LogTable t = LogTable::load(path, &lab, &m);
-                why = check_meta(kind, m);
-                if (why.empty() && (t.axis_min() != lo || t.axis_max() != hi || t.size() != grid_points(lo, hi, ppd)))
-                    why = "different range or points per decade";
-                if (why.empty()) {
-                    if (status) *status = "loaded";
-                    return load(t);
-                }
-            } catch (const std::exception& e) {
-                why = e.what();
-            }
-        } else {
-            why = "no file";
-        }
-    }
-    Tab T = build();
-    std::string st = "built";
-    if (!path.empty() && write) {
-        save(T, path);
-        st += why == "no file" ? " (saved)" : " (" + why + "; saved)";
-    } else if (!path.empty()) {
-        st += " (" + why + ")";
-    }
-    if (status) *status = st;
-    return T;
+// meta entries of a Bessel or rate table file; points_per_decade is the effective (n - 1) / decades
+std::map<std::string, std::string> table_meta(const std::string& kind, const LogTable& t) {
+    std::map<std::string, std::string> m{{"table", kind}, {"version", std::to_string(TABLE_VERSION)},
+                                         {"points_per_decade", detail::exact((t.size() - 1) / std::log10(t.axis_max() / t.axis_min()))}};
+    if (kind == "qed.rate") m["rmax_safety"] = detail::exact(RMAX_SAFETY);
+    return m;
+}
+
+// the table of a file, checked for kind, version and number of columns (throws otherwise)
+LogTable load_checked(const std::string& path, const std::string& kind, int ncomp) {
+    std::map<std::string, std::string> m;
+    LogTable t = LogTable::load(path, nullptr, &m);
+    std::string why = detail::check_meta(m, kind);
+    if (why.empty() && kind == "qed.rate" && detail::meta_get(m, "rmax_safety") != detail::exact(RMAX_SAFETY))
+        why = "different rmax_safety";
+    if (why.empty() && t.ncomp() != ncomp) why = std::to_string(ncomp) + " columns expected";
+    if (!why.empty()) throw std::runtime_error(path + ": " + why);
+    return t;
+}
+
+// the axis of t is the one LogTable::build makes for these parameters
+bool same_axis(const LogTable& t, double lo, double hi, double ppd) {
+    return t.axis_min() == lo && t.axis_max() == hi && t.size() == LogTable::grid_size(lo, hi, ppd);
 }
 } // namespace
 
@@ -179,45 +142,28 @@ void save_rate_table(const RateTable& T, const std::string& path) {
     T.t.save(path, RATE_LABELS, table_meta("qed.rate", T.t));
 }
 
-namespace {
-BesselTable bessel_from(const LogTable& t) {
-    BesselTable T;
-    T.t = t;
-    T.y_min = t.axis_min();
-    T.y_max = t.axis_max();
-    return T;
-}
-RateTable rate_from(const LogTable& t) {
-    RateTable T;
-    T.t = t;
-    return T;
-}
-} // namespace
-
 BesselTable load_bessel_table(const std::string& path) {
-    std::map<std::string, std::string> m;
-    const LogTable t = LogTable::load(path, nullptr, &m);
-    const std::string why = check_meta("qed.bessel", m);
-    if (!why.empty() || t.ncomp() != 3) throw std::runtime_error("load_bessel_table: " + path + ": " + (why.empty() ? "3 columns expected" : why));
-    return bessel_from(t);
+    BesselTable T;
+    T.t = load_checked(path, "qed.bessel", 3);
+    T.y_min = T.t.axis_min();
+    T.y_max = T.t.axis_max();
+    return T;
 }
 RateTable load_rate_table(const std::string& path) {
-    std::map<std::string, std::string> m;
-    const LogTable t = LogTable::load(path, nullptr, &m);
-    const std::string why = check_meta("qed.rate", m);
-    if (!why.empty() || t.ncomp() != RateTable::RATE_COLUMNS) throw std::runtime_error("load_rate_table: " + path + ": " + (why.empty() ? "10 columns expected" : why));
-    return rate_from(t);
+    RateTable T;
+    T.t = load_checked(path, "qed.rate", RateTable::RATE_COLUMNS);
+    return T;
 }
 
 BesselTable bessel_table(const std::string& path, double y_min, double y_max, double ppd, bool write, std::string* status) {
-    return load_or_build<BesselTable>("qed.bessel", path, y_min, y_max, ppd, write, status,
-        [&](const LogTable& t) { if (t.ncomp() != 3) throw std::runtime_error("3 columns expected"); return bessel_from(t); },
-        [&] { return make_bessel_table(y_min, y_max, ppd); }, save_bessel_table);
+    return detail::load_or_build(path, write, status, load_bessel_table,
+                                 [&](const BesselTable& T) { return same_axis(T.t, y_min, y_max, ppd); },
+                                 [&] { return make_bessel_table(y_min, y_max, ppd); }, save_bessel_table);
 }
 RateTable rate_table(const std::string& path, double chi_min, double chi_max, double ppd, bool write, std::string* status) {
-    return load_or_build<RateTable>("qed.rate", path, chi_min, chi_max, ppd, write, status,
-        [&](const LogTable& t) { if (t.ncomp() != RateTable::RATE_COLUMNS) throw std::runtime_error("10 columns expected"); return rate_from(t); },
-        [&] { return make_rate_table(chi_min, chi_max, ppd); }, save_rate_table);
+    return detail::load_or_build(path, write, status, load_rate_table,
+                                 [&](const RateTable& T) { return same_axis(T.t, chi_min, chi_max, ppd); },
+                                 [&] { return make_rate_table(chi_min, chi_max, ppd); }, save_rate_table);
 }
 
 } // namespace qed

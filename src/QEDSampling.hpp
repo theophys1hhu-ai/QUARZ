@@ -97,6 +97,7 @@ KOKKOS_INLINE_FUNCTION Real advance_optical_depth(Real& tau, Real R, Real dt) {
     tau = Real(0);
     return t_emit;
 }
+// true if the time returned by advance_optical_depth ends in an emission
 KOKKOS_INLINE_FUNCTION bool emits(Real t_advanced, Real dt) { return t_advanced < dt; }
 
 // Cumulative spectrum Wc(u; chi), Gc(u; chi) on two logarithmic axes:

@@ -3,8 +3,9 @@
 // h = ln(x_max/x_min)/(n-1). Each column is stored either linearly (f) or logarithmically (ln|f|, with
 // its constant sign): the logarithmic form is exact for power laws and smooth for exponentials.
 // Outside [x_min, x_max] the end interval is continued linearly in t (power-law extrapolation for
-// logarithmic columns); callers that need the exact value there should test in_range().
+// logarithmic columns); callers that need the exact value there must test the range themselves.
 // Device-copyable (Kokkos views); built on the host from any callable f(x, double* out).
+// eval(...) reads device memory (inside kernels on a GPU); eval_host(...) is the same on the host.
 //
 // save() / load(): plain text ("*.lut" by convention), exact round trip (17 significant digits; the
 // loaded table is bit-identical to the saved one). Format:
@@ -45,7 +46,7 @@ public:
                           const std::vector<int>& modes, const std::string& name = "LogTable") {
         if (!(x_min > 0) || !(x_max > x_min) || !(points_per_decade >= 1) || nc < 1)
             throw std::runtime_error(name + ": invalid table parameters");
-        const int n = std::max(4, static_cast<int>(std::ceil(std::log10(x_max / x_min) * points_per_decade)) + 1);
+        const int n = grid_size(x_min, x_max, points_per_decade);
         HostValues V("LogTable.values", n, nc);
         std::vector<double> out(nc);
         for (int i = 0; i < n; ++i) {
@@ -53,6 +54,11 @@ public:
             for (int c = 0; c < nc; ++c) V(i, c) = out[c];
         }
         return from_values(x_min, x_max, V, modes, name);
+    }
+
+    // number of grid points build() uses (at least 4, for the cubic stencils)
+    static int grid_size(double x_min, double x_max, double points_per_decade) {
+        return std::max(4, static_cast<int>(std::ceil(std::log10(x_max / x_min) * points_per_decade)) + 1);
     }
 
     // node i of the grid with n points (the end points exactly x_min, x_max)
@@ -71,7 +77,7 @@ public:
         if (!fp) throw std::runtime_error("LogTable::save: cannot write " + path);
         std::fprintf(fp, "# QUARZ LogTable 1\n# name %s\n# points %d columns %d\n# x_min %.17g x_max %.17g\n# modes",
                      name_ok(name_), n_, nc_, xmin_, xmax_);
-        for (int c = 0; c < nc_; ++c) std::fprintf(fp, " %s", mode_h_(c) == Log ? "log" : "lin");
+        for (int c = 0; c < nc_; ++c) std::fprintf(fp, " %s", mode(c) == Log ? "log" : "lin");
         std::fprintf(fp, "\n");
         if (!labels.empty()) {
             if (static_cast<int>(labels.size()) != nc_) { std::fclose(fp); throw std::runtime_error("LogTable::save: wrong number of labels"); }
@@ -189,19 +195,13 @@ public:
         return from_values(x_min, x_max, V, modes, name);
     }
 
-    KOKKOS_INLINE_FUNCTION Real x_min() const { return Kokkos::exp(t0_); }
-    KOKKOS_INLINE_FUNCTION Real x_max() const { return Kokkos::exp(t1_); }
-    KOKKOS_INLINE_FUNCTION bool in_range(Real x) const {
-        const Real t = Kokkos::log(x);
-        return t >= t0_ && t <= t1_;
-    }
     int size() const { return n_; }
     int ncomp() const { return nc_; }
     bool empty() const { return n_ == 0; }
     std::string name() const { return name_; }
     // function value f_c(x_i) at node i as built or loaded (host)
     double value(int i, int c) const { return V_(i, c); }
-    int mode(int c) const { return mode_h_(c); }
+    int mode(int c) const { return sign_h_(c) != 0 ? Log : Linear; }
     double axis_min() const { return xmin_; }   // x_min, x_max exactly (host)
     double axis_max() const { return xmax_; }
 
@@ -237,8 +237,7 @@ public:
         return sign_(c) != Real(0) ? sign_(c) * Kokkos::exp(v) : v;
     }
 
-    // ---- evaluation on the host (the functions above read device memory and may only be called inside
-    //      kernels when the default execution space is a GPU); same interpolation, host copy of the table
+    // ---- evaluation on the host: the same interpolation on the host mirror of the table
     double eval_host(int c, double x) const {
         int j;
         Real w[4];
@@ -270,13 +269,14 @@ private:
         T.F_ = View2D(name + ".F", n, nc);
         T.sign_ = View1D(name + ".sign", nc);
         T.V_ = V;
-        T.mode_h_ = Kokkos::View<int*, Kokkos::HostSpace>("LogTable.modes", nc);
         std::snprintf(T.name_, sizeof T.name_, "%s", name.c_str());
-        auto hF = Kokkos::create_mirror_view(T.F_);
-        auto hs = Kokkos::create_mirror_view(T.sign_);
+        // host mirrors (the same memory as F_, sign_ on host backends): filled here, copied to the device
+        T.Fh_ = Kokkos::create_mirror_view(T.F_);
+        T.sign_h_ = Kokkos::create_mirror_view(T.sign_);
+        auto& hF = T.Fh_;
+        auto& hs = T.sign_h_;
         for (int c = 0; c < nc; ++c) {
             if (modes[c] != Linear && modes[c] != Log) throw std::runtime_error(name + ": unknown column mode");
-            T.mode_h_(c) = modes[c];
             hs(c) = 0;
             for (int i = 0; i < n; ++i) {
                 const double v = V(i, c);
@@ -294,10 +294,6 @@ private:
         }
         Kokkos::deep_copy(T.F_, hF);
         Kokkos::deep_copy(T.sign_, hs);
-        T.Fh_ = HostValues("LogTable.F_host", n, nc);
-        T.sign_h_ = Kokkos::View<double*, Kokkos::HostSpace>("LogTable.sign_host", nc);
-        Kokkos::deep_copy(T.Fh_, hF);
-        Kokkos::deep_copy(T.sign_h_, hs);
         return T;
     }
     // names and labels are single words in the file
@@ -337,11 +333,11 @@ private:
     View1D sign_;     // per column: 0 = Linear, +-1 = Log with that sign
     Real t0_ = 0, t1_ = 0, idt_ = 1;
     int n_ = 0, nc_ = 0;
-    // host side: the function values as built or loaded (saved exactly), modes, axis ends, name
+    // host side: the function values as built or loaded (saved exactly), the host mirrors of F_ and
+    // sign_ (eval_host, column modes), the axis ends, the name
     HostValues V_;
-    HostValues Fh_;               // host copies of F_ and sign_ (eval_host)
-    Kokkos::View<double*, Kokkos::HostSpace> sign_h_;
-    Kokkos::View<int*, Kokkos::HostSpace> mode_h_;
+    View2D::host_mirror_type Fh_;
+    View1D::host_mirror_type sign_h_;
     double xmin_ = 0, xmax_ = 0;
     char name_[64] = "LogTable";   // not std::string: the class is copied into device kernels
 };

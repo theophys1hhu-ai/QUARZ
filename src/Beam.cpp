@@ -6,6 +6,7 @@
 #include "SliceData.hpp"
 
 #include <array>
+#include <initializer_list>
 #include <cmath>
 #include <limits>
 #include <algorithm>
@@ -107,39 +108,8 @@ Beam::Beam(const Config& cfg, const std::string& name, const RadialGrid& grid, c
                    std::hash<std::string>{}(name);
         if (rigid_) throw std::runtime_error(name + ".scattering: not for rigid beams");
     }
-    // ---- photon emission (nonlinear Compton scattering), <beam>.qed = 1; tables: set_qed_tables()
-    if (cfg.get_bool(name + ".qed", false)) {
-        const double n0 = cfg.get_double("units.n0_cm3", 0.0);
-        if (!(n0 > 0)) throw std::runtime_error(name + ".qed needs the plasma density units.n0_cm3");
-        if (std::abs(std::abs(q_) - 1) > 1e-12 || std::abs(m_ - 1) > 1e-12)
-            throw std::runtime_error(name + ".qed: only for electrons and positrons (charge -1 or +1, mass 1)");
-        if (rigid_) throw std::runtime_error(name + ".qed: not for rigid beams");
-        if (pusher_ == BeamPusher::IMP_RR) throw std::runtime_error(name + ".qed: not with pusher imp_rr (radiation reaction twice)");
-        qed_on_ = true;
-        qed_.eta = qed::eta_from_n0_cm3(n0);
-        qed_.charge = q_ > 0 ? 1 : -1;
-        const std::string smp = cfg.get_string("qed.sampler", "inversion");
-        if (smp == "inversion") qed_.sampler = qed::INVERSION;
-        else if (smp == "rejection") qed_.sampler = qed::REJECTION;
-        else throw std::runtime_error("qed.sampler must be inversion|rejection");
-        const std::string sm = cfg.get_string("qed.spin_model", "mixed");
-        if (sm == "mixed") qed_.spin_model = qed::MIXED;
-        else if (sm == "pure") qed_.spin_model = qed::PURE;
-        else throw std::runtime_error("qed.spin_model must be mixed|pure");
-        qed_.p_max = cfg.get_double("qed.max_prob", 0.1);
-        qed_.max_substeps = cfg.get_int("qed.max_substeps", 1000);
-        if (!(qed_.p_max > 0 && qed_.p_max <= 1) || qed_.max_substeps < 1)
-            throw std::runtime_error("qed: need 0 < qed.max_prob <= 1 and qed.max_substeps >= 1");
-        const std::string model = cfg.get_string("qed.model", "stochastic");
-        if (model == "stochastic") qed_.model = qed::STOCHASTIC;
-        else if (model == "continuous") qed_.model = qed::CONTINUOUS;
-        else if (model == "classical") qed_.model = qed::CLASSICAL;
-        else throw std::runtime_error("qed.model must be stochastic|continuous|classical");
-        qed_.recoil = !cfg.get_bool("qed.no_recoil", false);          // testing: fixed chi
-        qed_.spin_change = !cfg.get_bool("qed.fixed_spin", false);    // testing: fixed spin
-        qed_seed_ = static_cast<uint64_t>(cfg.get_int("qed.seed", 1)) * 0x2545f4914f6cdd1dULL ^ std::hash<std::string>{}(name);
-        if (has_tau()) nc_ += 1;
-    }
+    // ---- photon emission (nonlinear Compton scattering), <beam>.qed = 1
+    if (cfg.get_bool(name + ".qed", false)) init_qed(cfg);
     if (qm) {   // empty beam, filled by add_new
         std::vector<double> none;
         set_particles(none);
@@ -883,77 +853,69 @@ void Beam::advance(const View3D& fld, Real dt_kick, Real dt, bool move, const Vi
     const Scatter sc = sc_;
     const uint64_t skey = ion_mix(sc_.seed ^ ion_mix(static_cast<uint64_t>(step) + 0x51ed27ULL));
     const bool laser = pond.extent(0) > 0;
-    const GridD g = grid_.d;
     auto x = x_; auto y = y_; auto px = px_; auto py = py_; auto pz = pz_; auto xi = xi_; auto w = w_;
     const Real qm = q_ / m_;
-    const Real xmin = bg_.xi_min, idxi = Real(1) / bg_.dxi;
-    const Real xmax = bg_.xi_min + (bg_.nxi - 1) * bg_.dxi;
-    const int k0 = bg_.k0, nloc = bg_.nloc;
-    const bool ngp = bg_.ngp;
+    const Real xmin = bg_.xi_min, xmax = bg_.xi_min + (bg_.nxi - 1) * bg_.dxi;
     const Real R = grid_.R;
     const int mode = static_cast<int>(pusher_);
     const Real rr = rr_;
-    const bool m1 = m1_;
     const bool spin = spin_;
     const Real an = anom_;
     auto sx = sx_; auto sy = sy_; auto sz = sz_;
-    const bool ext = ext_on_;
     const bool push_mom = push_momentum_, precess = precession_;
-    const push::V3 Eext{ext_E_[0], ext_E_[1], ext_E_[2]}, Bext{ext_B_[0], ext_B_[1], ext_B_[2]};
-    // photon emission: parameters and tables, optical depth, record buffer, random key of the step
+    const Gather G{fld, grid_.d, bg_.xi_min, Real(1) / bg_.dxi, bg_.k0, bg_.nloc, bg_.ngp, m1_, ext_on_,
+                   push::V3{ext_E_[0], ext_E_[1], ext_E_[2]}, push::V3{ext_B_[0], ext_B_[1], ext_B_[2]}};
+
+    // ---- photon emission: parameters and tables, optical depth, sub-steps, record buffer
     const bool qed = qed_on_ && move;
-    if (qed) {
-        if (!qed_tables_) throw std::runtime_error(name_ + ": QED tables not set");
-        if (ph_cap_ == 0) {
-            ph_cap_ = std::max(4096, Np_ / 4);
-            ph_rec_ = Kokkos::View<Real**, Kokkos::LayoutRight, MemSpace>(name_ + ".photons", ph_cap_, PHOTON_RECORD);
-            ph_count_ = Kokkos::View<int, MemSpace>(name_ + ".photon_count");
-        }
-        Kokkos::deep_copy(ph_count_, 0);
-    }
     const qed::Emission Q = qed_;
     const bool use_tau = has_tau();
     auto tau = tau_;
-    auto rec = ph_rec_;
-    auto rec_count = ph_count_;
     const uint64_t qkey = ion_mix(qed_seed_ ^ ion_mix(static_cast<uint64_t>(step) + 0x3c6ef372fe94f82bULL));
-    const Gather G{fld, g, xmin, idxi, k0, nloc, ngp, m1, ext, Eext, Bext};
-    // QED pre-pass: the number of sub-steps of every particle (from chi at the start of the step) and
-    // the expected number of photons, which sizes the record buffer
     if (qed) {
+        if (!qed_tables_) throw std::runtime_error(name_ + ": QED tables not set");
+        // pre-pass: the number of sub-steps of every particle (emission probability per sub-step below
+        // qed.max_prob, from chi at the start of the step) and the expected number of photons
         if (static_cast<int>(nsub_.extent(0)) < Np_) nsub_ = Kokkos::View<int*, MemSpace>(name_ + ".nsub", Np_);
         auto nsub_v = nsub_;
         double expected = 0;
         Kokkos::parallel_reduce("beam.qed_substeps", Range(i0, Np_), KOKKOS_LAMBDA(int i, double& e) {
-            if (w(i) == Real(0)) { nsub_v(i) = 1; return; }
+            nsub_v(i) = 1;
+            if (w(i) == Real(0)) return;
             push::V3 E, B;
             G.fields(G.locate(x(i), y(i), xi(i)), E, B);
             const push::V3 u{px(i), py(i), pz(i)};
-            nsub_v(i) = qed::substeps(Q, u, E, B, dt);
             const Real chi_i = qed::chi(u, E, B, Q.eta);
-            if (chi_i > Real(0)) e += qed::rate_prefactor(Kokkos::sqrt(Real(1) + push::dot(u, u)), Q.eta) * dt * Q.rates(chi_i).W;
+            if (!(chi_i > Real(0))) return;
+            const qed::RateValues r = Q.rates(chi_i);
+            const Real C0_dt = qed::rate_prefactor(Kokkos::sqrt(Real(1) + push::dot(u, u)), Q.eta) * dt;
+            const int n = qed::rejection_substeps(C0_dt, r.Rmax, Q.p_max);
+            nsub_v(i) = n < Q.max_substeps ? n : Q.max_substeps;
+            e += C0_dt * r.W;
         }, expected);
-        const double need = 2 * expected + 6 * std::sqrt(expected) + 1024;   // overflow: a 2x + 6 sigma fluctuation
+        // the record buffer holds a 2x + 6 sigma fluctuation of the expected number (overflow: see below)
+        const double need = 2 * expected + 6 * std::sqrt(expected) + 1024;
         if (need > ph_cap_) {
             ph_cap_ = static_cast<int>(std::min(need, 2e9));
             ph_rec_ = Kokkos::View<Real**, Kokkos::LayoutRight, MemSpace>(name_ + ".photons", ph_cap_, PHOTON_RECORD);
         }
+        if (ph_count_.data() == nullptr) ph_count_ = Kokkos::View<int, MemSpace>(name_ + ".photon_count");
+        Kokkos::deep_copy(ph_count_, 0);
     }
     auto nsub_v = nsub_;
-    rec = ph_rec_;
-    const int rec_cap2 = ph_cap_;
+    auto rec = ph_rec_;
+    auto rec_count = ph_count_;
+    const int rec_cap = ph_cap_;
+
     Kokkos::parallel_for("beam.push", Range(i0, Np_), KOKKOS_LAMBDA(int i) {
         if (w(i) == Real(0)) return;
 
         using Where = Gather::Where;
-        auto locate = [&](Real X, Real Y, Real XI) { return G.locate(X, Y, XI); };
-        auto bil = [&](const View3D& a, const Where& p, int comp) { return G.bil(a, p, comp); };
-        auto fields = [&](const Where& p, push::V3& E, push::V3& B) { G.fields(p, E, B); };
         // laser ponderomotive force (time-averaged) at p for momentum u:
         //   du/dt = -qhat^2 grad<a^2> / (2 gamma_bar),  d/dz = -d/dxi
         auto ponderomotive = [&](const Where& p, const push::V3& u) {
             if (!laser) return push::V3{Real(0), Real(0), Real(0)};
-            const Real A = bil(pond, p, 0), dAr = bil(pond, p, 1), dAxi = bil(pond, p, 2);
+            const Real A = G.bil(pond, p, 0), dAr = G.bil(pond, p, 1), dAxi = G.bil(pond, p, 2);
             const Real gb = Kokkos::sqrt(Real(1) + push::dot(u, u) + qm * qm * A);
             const Real f = -Real(0.5) * qm * qm / gb;
             return push::V3{f * dAr * p.c, f * dAr * p.sn, -f * dAxi};
@@ -998,9 +960,9 @@ void Beam::advance(const View3D& fld, Real dt_kick, Real dt, bool move, const Vi
 
         const Real X0 = x(i), Y0 = y(i);
         push::V3 u{px(i), py(i), pz(i)};
-        Where at = locate(X0, Y0, xi(i));
+        Where at = G.locate(X0, Y0, xi(i));
         push::V3 E, B;
-        fields(at, E, B);
+        G.fields(at, E, B);
         const push::V3 Fp0 = ponderomotive(at, u);
 
         if (!move) {   // explicit kick only (leapfrog start-up)
@@ -1017,19 +979,21 @@ void Beam::advance(const View3D& fld, Real dt_kick, Real dt, bool move, const Vi
         // t_{n+1} - dt/2, where the next step expects it. nsub = 1 is the ordinary leapfrog.
         const int nsub = qed ? nsub_v(i) : 1;
         const Real h = dt / nsub;
-        // random numbers of the emission: hash of the particle's state at the start of the step
-        qed::ParticleRandom random{qkey, 0};
-        if (qed) {
+        // random numbers (emission, scattering): from a hash of the particle's state at the start of the
+        // step, so they do not depend on its memory index or MPI rank
+        uint64_t state_id = 0;
+        if (qed || scat) {
             union { double d; uint64_t u; } bx{X0}, by{Y0}, bz{xi(i)}, bp{pz(i)};
-            random.particle = ion_mix(bx.u ^ ion_mix(by.u ^ ion_mix(bz.u ^ ion_mix(bp.u))));
+            state_id = ion_mix(bx.u ^ ion_mix(by.u ^ ion_mix(bz.u ^ ion_mix(bp.u))));
         }
+        qed::ParticleRandom random{qkey, state_id};
         Real X = X0, Y = Y0;
         bool alive = true;
         for (int sub = 0; sub < nsub; ++sub) {
             push::V3 Fp = Fp0;
             if (sub > 0) {
-                at = locate(X, Y, xi(i));
-                fields(at, E, B);
+                at = G.locate(X, Y, xi(i));
+                G.fields(at, E, B);
                 Fp = ponderomotive(at, u);
             }
             kick(u, E, B, Fp, sub == 0 ? dt_kick - Real(0.5) * (dt - h) : h);
@@ -1039,7 +1003,7 @@ void Beam::advance(const View3D& fld, Real dt_kick, Real dt, bool move, const Vi
                 const Real t_sub = sub * h, Xs = X, Ys = Y, XIs = xi(i), wi = w(i);
                 auto record = [&](const qed::Photon& ph) {
                     const int n = Kokkos::atomic_fetch_add(&rec_count(), 1);
-                    if (n >= rec_cap2) return;   // counted: the buffer grows for the next step
+                    if (n >= rec_cap) return;   // counted: the buffer grows for the next step
                     const Real r[PHOTON_RECORD] = {t_sub + ph.t, Xs, Ys, XIs, ph.k.x, ph.k.y, ph.k.z, wi,
                                                    ph.stokes.x, ph.stokes.y, ph.stokes.z, ph.chi};
                     for (int c = 0; c < PHOTON_RECORD; ++c) rec(n, c) = r[c];
@@ -1050,9 +1014,8 @@ void Beam::advance(const View3D& fld, Real dt_kick, Real dt, bool move, const Vi
             }
             if (scat && sub == 0) {
                 // multiple Coulomb scattering, d<p_x^2>/dt = kappa [Z^2 n_i L_i + (n_e + (Z - zeta) n_i) L_e]
-                // per transverse axis; elastic: |p| is kept. Random numbers from a hash of the particle's
-                // state at the start of the step (independent of its memory index and rank).
-                const Real ne = Kokkos::fmax(bil(diag, at, 1), Real(0)), ni = Kokkos::fmax(bil(diag, at, 2), Real(0));   // D_NE0, D_NI0
+                // per transverse axis; elastic: |p| is kept
+                const Real ne = Kokkos::fmax(G.bil(diag, at, 1), Real(0)), ni = Kokkos::fmax(G.bil(diag, at, 2), Real(0));   // D_NE0, D_NI0
                 const Real pp = Kokkos::sqrt(push::dot(u, u));
                 // Coulomb logarithms from one log(gamma) (lnb* = precomputed logs of the lengths)
                 const Real lg = Kokkos::log(Kokkos::sqrt(Real(1) + pp * pp));
@@ -1063,9 +1026,7 @@ void Beam::advance(const View3D& fld, Real dt_kick, Real dt, bool move, const Vi
                 const Real D = sc.kappa * (sc.Z * sc.Z * ni * Kokkos::fmax(Li, Real(0)) + ne * Kokkos::fmax(Le, Real(0)) +
                                            (sc.Z - sc.zeta) * ni * Kokkos::fmax(Lb, Real(0)));
                 if (D > Real(0)) {
-                    union { double d; uint64_t u; } bx{X0}, by{Y0}, bz{xi(i)}, bp{pz(i)};
-                    const uint64_t id = ion_mix(bx.u ^ ion_mix(by.u ^ ion_mix(bz.u ^ ion_mix(bp.u))));
-                    const Real u1 = Kokkos::fmax(ion_rand(skey, id, 0), Real(1e-300)), u2 = ion_rand(skey, id, 1);
+                    const Real u1 = Kokkos::fmax(ion_rand(skey, state_id, 0), Real(1e-300)), u2 = ion_rand(skey, state_id, 1);
                     const Real s = Kokkos::sqrt(D * Kokkos::fabs(dt_kick)) * Kokkos::sqrt(Real(-2) * Kokkos::log(u1));
                     const Real ph = Real(6.283185307179586) * u2;
                     const push::V3 ub = u;
@@ -1101,26 +1062,23 @@ void Beam::advance(const View3D& fld, Real dt_kick, Real dt, bool move, const Vi
             if (X * X + Y * Y >= R * R || xi(i) < xmin || xi(i) > xmax) { alive = false; break; }   // left the box
         }
         if (alive && nsub > 1) {   // back to the half step of the next leapfrog step
-            at = locate(X, Y, xi(i));
-            fields(at, E, B);
+            at = G.locate(X, Y, xi(i));
+            G.fields(at, E, B);
             kick(u, E, B, ponderomotive(at, u), -Real(0.5) * (dt - h));
         }
         x(i) = X; y(i) = Y;
         px(i) = u.x; py(i) = u.y; pz(i) = u.z;
         if (!alive) w(i) = Real(0);
     });
-    if (qed) {   // collect the photon records of this push
+    if (qed) {   // collect the photon records of this push (rows 0 .. kept-1: one contiguous block)
         int n = 0;
         Kokkos::deep_copy(n, ph_count_);
         const int kept = std::min(n, ph_cap_);
         if (kept > 0) {
             auto h = Kokkos::create_mirror_view_and_copy(HostSpace(), Kokkos::subview(ph_rec_, std::make_pair(0, kept), Kokkos::ALL()));
-            const size_t o = ph_host_.size();
-            ph_host_.resize(o + static_cast<size_t>(kept) * PHOTON_RECORD);
-            for (int r = 0; r < kept; ++r)
-                for (int c = 0; c < PHOTON_RECORD; ++c) ph_host_[o + static_cast<size_t>(r) * PHOTON_RECORD + c] = h(r, c);
+            ph_host_.insert(ph_host_.end(), h.data(), h.data() + static_cast<size_t>(kept) * PHOTON_RECORD);
         }
-        if (n > ph_cap_) {   // overflow: grow the buffer for the next push
+        if (n > ph_cap_) {   // overflow (records counted as lost, the emission itself is complete): grow the buffer
             ph_lost_ += n - ph_cap_;
             ph_cap_ = 2 * n;
             ph_rec_ = Kokkos::View<Real**, Kokkos::LayoutRight, MemSpace>(name_ + ".photons", ph_cap_, PHOTON_RECORD);
@@ -1129,6 +1087,45 @@ void Beam::advance(const View3D& fld, Real dt_kick, Real dt, bool move, const Vi
 }
 
 // ---- photon emission
+
+namespace {
+// a keyword option: the position of its value in names (the first name is the default)
+int keyword(const Config& cfg, const std::string& key, std::initializer_list<const char*> names) {
+    const std::string v = cfg.get_string(key, *names.begin());
+    int i = 0;
+    std::string all;
+    for (const char* n : names) {
+        if (v == n) return i;
+        all += (i++ ? "|" : "") + std::string(n);
+    }
+    throw std::runtime_error(key + " must be " + all);
+}
+} // namespace
+
+// the parameters of the photon emission (the tables are set later, set_qed_tables)
+void Beam::init_qed(const Config& cfg) {
+    const double n0 = cfg.get_double("units.n0_cm3", 0.0);
+    if (!(n0 > 0)) throw std::runtime_error(name_ + ".qed needs the plasma density units.n0_cm3");
+    if (std::abs(std::abs(q_) - 1) > 1e-12 || std::abs(m_ - 1) > 1e-12)
+        throw std::runtime_error(name_ + ".qed: only for electrons and positrons (charge -1 or +1, mass 1)");
+    if (rigid_) throw std::runtime_error(name_ + ".qed: not for rigid beams");
+    if (pusher_ == BeamPusher::IMP_RR) throw std::runtime_error(name_ + ".qed: not with pusher imp_rr (radiation reaction twice)");
+    qed_on_ = true;
+    qed_.eta = qed::eta_from_n0_cm3(n0);
+    qed_.charge = q_ > 0 ? 1 : -1;
+    // (the order of the names is that of the enums qed::Sampler, SpinModel, Model)
+    qed_.sampler = keyword(cfg, "qed.sampler", {"inversion", "rejection"});
+    qed_.spin_model = keyword(cfg, "qed.spin_model", {"mixed", "pure"});
+    qed_.model = keyword(cfg, "qed.model", {"stochastic", "continuous", "classical"});
+    qed_.p_max = cfg.get_double("qed.max_prob", 0.1);
+    qed_.max_substeps = cfg.get_int("qed.max_substeps", 1000);
+    if (!(qed_.p_max > 0 && qed_.p_max <= 1) || qed_.max_substeps < 1)
+        throw std::runtime_error("qed: need 0 < qed.max_prob <= 1 and qed.max_substeps >= 1");
+    qed_.recoil = !cfg.get_bool("qed.no_recoil", false);          // testing: fixed chi
+    qed_.spin_change = !cfg.get_bool("qed.fixed_spin", false);    // testing: fixed spin
+    qed_seed_ = static_cast<uint64_t>(cfg.get_int("qed.seed", 1)) * 0x2545f4914f6cdd1dULL ^ std::hash<std::string>{}(name_);
+    if (has_tau()) nc_ += 1;   // the optical depth is stored per particle
+}
 
 std::vector<double> Beam::expand7(const std::vector<double>& p7) const {
     const size_t n = p7.size() / 7, nc = static_cast<size_t>(nc_);
@@ -1354,7 +1351,7 @@ void Beam::dump(const std::string& filename, int stride) const {
     const std::vector<double> all = packed();
     // int32 n, then n records of 7 doubles (10 with spin: + s_x s_y s_z; readers infer it from the size);
     // the optical depth (QED) is not written
-    const size_t nc = static_cast<size_t>(nc_), nd = spin_ ? 10 : 7;
+    const size_t nc = static_cast<size_t>(nc_), nd = static_cast<size_t>(dump_ncomp());
     std::vector<double> p;
     for (size_t i = 0; i < all.size() / nc; i += static_cast<size_t>(std::max(stride, 1)))
         p.insert(p.end(), all.begin() + nc * i, all.begin() + nc * i + nd);

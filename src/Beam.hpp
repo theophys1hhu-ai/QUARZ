@@ -129,6 +129,7 @@ public:
 
 private:
     void init_gaussian(const Config& cfg);
+    void init_qed(const Config& cfg);
     void init_file(const std::string& filename);
     void init_parsed(const Config& cfg);
 public:

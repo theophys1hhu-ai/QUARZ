@@ -39,8 +39,8 @@ cmake -B build -DKokkos_ENABLE_OPENMP=ON \
       -DKokkos_ROOT=/home/claude/kokkos-install -DopenPMD_ROOT=/home/claude/openpmd-install
 cmake --build build -j2 && (cd build && ctest)
 export OMP_PROC_BIND=false            # needed here, otherwise OpenMP runs badly
-cd validation && ./run_validation.sh -q -j 2 -c       # quick regression, ~2 min: after EVERY code change
-cd validation && ./run_validation.sh -j 2 -c          # full suite (sections 1-26), ~10-15 min: milestones / new physics
+cd validation && ./run_validation.sh -q -j 2 -c       # quick regression, ~6 min on 2 cores: after EVERY code change
+cd validation && ./run_validation.sh -j 2 -c          # full suite (sections 1-26), ~25 min on 2 cores: milestones / new physics
 ```
 CUDA compile check (no GPU here):
 `CU=$(python3 -c 'import nvidia,os;print(os.path.join(list(nvidia.__path__)[0],"cu13"))'); PATH=$CU/bin:$PATH CUDA_HOME=$CU make -C build-cuda -j2 quarz_core`
@@ -65,7 +65,7 @@ Package for delivery (includes .git, so the history survives the container):
   reference files (`-u` after checking the numbers), and a row in README §7.
 
 ## Validation policy (keep it fast)
-- After a code change: quick suite with `-c` (2 min). Only the sections the change can affect
+- After a code change: quick suite with `-c` (~6 min). Only the sections the change can affect
   if it is clearly local (laser -> 11, ionization -> 12, MPI/output -> 9 10, m = 1 -> 6 7,
   grid/solver -> 1 2 5, plasma push / sub-slicing -> 13, smoothing -> 14, checkpoints / output groups -> 15, time step -> 16, GUI -> 17, Coulomb scattering -> 18, two-stage runs -> 19, spin -> 20, trapping -> 21, photon emission (QED) / external fields -> 26). Full suite with `-c` at milestones and before delivering physics results.
 - Run long suites in the background (`nohup ... &`) and poll the process, not `pgrep -f`
