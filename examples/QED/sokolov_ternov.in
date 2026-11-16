@@ -1,0 +1,45 @@
+# Radiative polarization (Sokolov-Ternov) at fixed energy: electrons with
+# gamma = 1e7 and the spin along the field (s2 = +1) in a constant B = B_x at chi = 1, momentum kept
+# fixed (qed.no_recoil = 1), the spin free. The mean spin relaxes as
+#   <s2>(t) = (S0 - S_inf) exp(C0 (Xi - W) t) + S_inf,   S_inf = -0.8375 at chi = 1 (-8 sqrt(3)/15 = -0.924 for chi -> 0),
+# with 1/(C0 (W - Xi)) = 7.8e4 here (relaxed after ~5e5).
+# chi = 0.1 relaxes ~90 times slower (1/(C0 (W - Xi)) = 6.8e6), towards -0.905:
+#   "fields.external_B=0.0041492 0 0" time.dt=2e4 time.steps=1000
+# Spin model and sampler: qed.spin_model = mixed | pure, qed.sampler = inversion | rejection.
+# Deterministic counterparts (no noise): qed.model=continuous (the same mean curve) and qed.model=classical
+# (Sokolov-Ternov chi^3 rates, 26 x faster at chi = 1, limit -0.924: use time.dt=40).
+# The photons are not written (qed.photon_output = 0: ~3e8 photons); qed.txt still counts them.
+# The momentum is fixed (e.momentum_push = 0): the field only sets chi.
+# Output: spin.txt (<s_x> = <s2>). Analysis: python3 analyze.py spin sokolov_ternov.in out_sokolov_ternov
+units.n0_cm3 = 1.1e21
+grid.type = uniform
+grid.rmax = 4
+grid.dr = 0.2
+xi.min = 0
+xi.max = 1
+xi.step = 0.05
+time.dt = 1000
+time.steps = 600
+plasma.species = ions
+ions.charge = 1
+ions.mass = 1836
+ions.mobile = 0
+plasma.density(x,y,z) = "0"
+fields.external_B = 0.041492 0 0
+beams = e
+e.n0 = 1e-9
+e.gamma = 1e7
+e.sigma_r = 0.01
+e.sigma_xi = 0.01
+e.xi0 = 0.5
+e.emit_n = 0
+e.nparticles = 2000
+e.passive = 1
+e.scattering = 0
+e.qed = 1
+e.spin = 1 0 0
+qed.no_recoil = 1
+e.momentum_push = 0
+qed.photon_output = 0
+output.dir = out_sokolov_ternov
+output.every = 0

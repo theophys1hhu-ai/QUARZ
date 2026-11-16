@@ -1,0 +1,32 @@
+# Photon emission (nonlinear Compton scattering) of electrons in a constant external magnetic field,
+# no plasma fields (validation section 26). Electrons move along z with gamma = 1e5, B along x:
+# chi = eta gamma B (eta = hbar omega_p / m c^2 = 7.2667e-8 for n0 = 1e18 cm^-3), here chi = 1.
+# e2 = e_v x e1 points along +x (the field) for electrons, so <beam>.spin = 1 0 0 is s2 = +1.
+grid.type = uniform
+grid.rmax = 20
+grid.dr = 0.5
+xi.min = 0
+xi.max = 2
+xi.step = 0.1
+time.dt = 1
+time.steps = 100
+units.n0_cm3 = 1e18
+plasma.species = ions
+ions.charge = 1
+ions.mass = 1836
+ions.mobile = 0
+plasma.density(x,y,z) = "0"
+fields.external_B = 137.614 0 0
+beams = e
+e.n0 = 1e-9
+e.sigma_r = 0.01
+e.sigma_xi = 0.02
+e.xi0 = 0.5
+e.gamma = 1e5
+e.emit_n = 0
+e.nparticles = 2000
+e.passive = 1
+e.qed = 1
+e.scattering = 0
+output.dir = out_qed
+output.every = 0

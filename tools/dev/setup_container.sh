@@ -120,7 +120,15 @@ fi
 if [ "${WITH_CUDA:-0}" = 1 ]; then
     log "CUDA compile-check toolchain (no GPU here: compile only)"
     run cuda pip install --break-system-packages nvidia-cuda-nvcc nvidia-cuda-runtime nvidia-cuda-cccl
-    CU=$(python3 -c 'import nvidia,os;print(os.path.join(os.path.dirname(nvidia.__file__),"cu13"))')
+    CU=$(python3 -c 'import nvidia,os;print(os.path.join(list(nvidia.__path__)[0],"cu13"))')   # (nvidia is a namespace package: no __file__)
+    # the pip wheels ship only versioned libraries; CMake's FindCUDAToolkit looks for libcudart.so
+    [ -e "$CU/lib/libcudart.so" ] || ln -s libcudart.so.13 "$CU/lib/libcudart.so"
+    # no driver library without a GPU: an empty stub satisfies CMake (compile check only: build quarz_core,
+    # which contains all kernels; executables cannot be linked against it)
+    if [ ! -e "$CU/lib/stubs/libcuda.so" ]; then
+        mkdir -p "$CU/lib/stubs" && echo "" > "$LOGDIR/empty.c" && gcc -shared -o "$CU/lib/stubs/libcuda.so" "$LOGDIR/empty.c"
+    fi
+    rm -rf "$PREFIX/kokkos5-cuda-build"   # (a failed configure leaves a cache that keeps failing)
     cd "$PREFIX"
     [ -d kokkos5-src/.git ] || run cuda git clone -q --depth 1 --branch 5.2.2 https://github.com/kokkos/kokkos.git kokkos5-src
     PATH=$CU/bin:$PATH CUDA_HOME=$CU run cuda cmake -S kokkos5-src -B kokkos5-cuda-build -DCMAKE_BUILD_TYPE=Release \
@@ -131,6 +139,6 @@ if [ "${WITH_CUDA:-0}" = 1 ]; then
     cd "$QUARZ"
     PATH=$CU/bin:$PATH CUDA_HOME=$CU run cuda cmake -B build-cuda -DKokkos_ROOT="$PREFIX/kokkos5-cuda-install" \
         -DCMAKE_CXX_COMPILER="$PREFIX/kokkos5-src/bin/nvcc_wrapper" -DopenPMD_ROOT="$PREFIX/openpmd-install"
-    echo "CUDA compile check: PATH=$CU/bin:\$PATH CUDA_HOME=$CU make -C build-cuda -j$NJ quarz"
+    echo "CUDA compile check: PATH=$CU/bin:\$PATH CUDA_HOME=$CU make -C build-cuda -j$NJ quarz_core"
 fi
 log "done"

@@ -713,7 +713,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def examples(self):
         out = []
-        for sub in ("examples", os.path.join("paper", "inputs"), "validation"):
+        for sub in ("examples", os.path.join("examples", "QED"), os.path.join("paper", "inputs"), "validation"):
             d = os.path.join(ROOT, sub)
             if os.path.isdir(d):
                 out += sorted(os.path.join(d, f) for f in os.listdir(d) if f.endswith(".in"))
