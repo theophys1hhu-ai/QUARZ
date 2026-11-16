@@ -54,6 +54,19 @@ The generated grid is written to `out/grid.txt` (j, r_j, h_j, V_j).
 | `<beam>.spin` | — | three numbers: initial spin direction (normalised); switches on the Thomas–BMT spin precession, see §1 |
 | `<beam>.anomalous_moment` | by mass (e±, μ, p) | a = (g − 2)/2; required for other masses |
 | `scattering.factor`, `scattering.seed` | 1, 1 | multiplies the scattering rate (testing only); random seed |
+| `<beam>.qed` | 0 | photon emission (nonlinear Compton scattering) of an electron/positron beam, see §1; needs `units.n0_cm3`; not with the pusher `imp_rr` or `pusher.rr_model` ≠ `classical` (radiation reaction twice) |
+| `qed.sampler` | `inversion` | `inversion` (optical depth, inverse cumulative spectrum) \| `rejection` (one trial per sub-step) |
+| `qed.spin_model` | `mixed` | `mixed` (\|S\| ≤ 1, expectation values) \| `pure` (\|S\| = 1, stochastic collapse); only for beams with `<beam>.spin` |
+| `qed.max_prob` | 0.1 | largest emission probability per sub-step; sets the number of sub-steps of the particle push |
+| `qed.max_substeps` | 1000 | upper limit of the sub-steps per particle and step |
+| `qed.seed` | 1 | random seed of the emission |
+| `qed.photon_output` | 1 | write the photon records `photons_<beam>.bin` (0: only `qed.txt`) |
+| `qed.photon_min_energy`, `<beam>.photon_min_energy` | 0 | write only the photons with an energy ≥ this (m c²); all photons are emitted and counted in `qed.txt` |
+| `qed.table_dir` | — | directory for the look-up tables (`qed_bessel.lut`, `qed_rates.lut`, `qed_spectrum.lut`): loaded if they match, otherwise built and saved (rank 0). Without it the tables are built in memory (0.2 s). |
+| `qed.model` | `stochastic` | `stochastic` (photon emission) \| `continuous` (deterministic radiation reaction with the mean power of the emission: synchrotron loss × g(χ), lepton keeps its direction, no photons; with `<beam>.spin` deterministic radiative polarization by the mean spin equation) \| `classical` (the same with g = 1 and the Sokolov–Ternov χ³ rates) |
+| `qed.no_recoil`, `qed.fixed_spin` | 0, 0 | testing: emit photons without changing the momentum (fixed χ) / the spin |
+| `<beam>.momentum_push`, `<beam>.spin_precession` | 1, 1 | testing: 0 = the fields do not change the momentum (the particles drift with fixed momentum) / no Thomas–BMT rotation |
+| `fields.external_E`, `fields.external_B` | 0 0 0 | constant external fields acting on the beams (m c ω_p/e) |
 
 **Function parser (HiPACE++ style).** Profiles can be given as formulas.
 - **Compilation.** Each expression is compiled once into a small stack
@@ -150,7 +163,8 @@ conservative one). During the first lag steps no rate is known yet. The step is 
 pipeline with the step-n message, so all ranks use the same Δt_n and the result does not
 depend on timing: a serial run with the same `time.adaptive_lag` is bit-identical to an MPI run.
 The beam leapfrog takes variable steps (kick (Δt_{n−1} + Δt_n)/2, drift Δt_n); with a constant
-step it is the usual scheme, bit for bit. Output: `timestep.txt` (step, t, Δt, γ_eff, n_max) and
+step it is the usual scheme, bit for bit. Output: `timestep.txt` (step, t, Δt, γ_eff, n_max; written
+in every run, with a constant time step just step, t, Δt) and
 `gamma_records.txt` (true global γ_eff after every push, for checking). Checkpoints carry the
 state (`adapt_rank_*.txt`). Not available with a laser (fixed step of the envelope solver).
 

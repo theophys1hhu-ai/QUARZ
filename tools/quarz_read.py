@@ -7,6 +7,10 @@ fields_NNNNNN.bin (version 2):
     mode 1 names: <name>_c, <name>_s with  f(r, theta) = f0 + f_c cos(theta) + f_s sin(theta)
 beam_<name>_NNNNNN.bin:
     int32 n, then n records of 7 float64: x, y, p_x, p_y, p_z, xi, w (10 with spin: + s_x, s_y, s_z)
+photons_<name>.bin (photon emission, <beam>.qed = 1):
+    char magic[8] = "QZPHOTON", int32 version(=1), int32 ncomp(=13), then records of 13 float64:
+    step, t, x, y, xi, k_x, k_y, k_z, w, xi_1, xi_2, xi_3, chi
+qed.txt: beam step t photons sum_w sum_w_energy sum_w_chi lost_records
 """
 import numpy as np
 
@@ -48,6 +52,34 @@ def read_beam(fn):
         a = np.fromfile(f, dtype=np.float64, count=nc * n).reshape(n, nc)
     names = ["x", "y", "px", "py", "pz", "xi", "w"] + (["sx", "sy", "sz"] if nc == 10 else [])
     return dict(zip(names, a.T))
+
+
+PHOTON_FIELDS = ["step", "t", "x", "y", "xi", "kx", "ky", "kz", "w", "xi1", "xi2", "xi3", "chi"]
+
+
+def read_photons(fn):
+    """photons_<beam>.bin -> dict of columns (PHOTON_FIELDS) plus 'energy' = |k| (m c^2)"""
+    with open(fn, "rb") as f:
+        magic = f.read(8)
+        ver, nc = np.fromfile(f, dtype=np.int32, count=2)
+        if magic != b"QZPHOTON" or ver != 1 or nc != len(PHOTON_FIELDS):
+            raise ValueError("%s: not a QUARZ photon file (version 1)" % fn)
+        a = np.fromfile(f, dtype=np.float64).reshape(-1, nc)
+    out = {k: a[:, i] for i, k in enumerate(PHOTON_FIELDS)}
+    out["energy"] = np.sqrt(out["kx"] ** 2 + out["ky"] ** 2 + out["kz"] ** 2)
+    return out
+
+
+def read_qedlog(fn):
+    """qed.txt -> dict beam_name -> columns step t photons sum_w sum_w_energy sum_w_chi lost"""
+    rows = {}
+    for line in open(fn):
+        if line.startswith("#") or not line.strip():
+            continue
+        w = line.split()
+        rows.setdefault(w[0], []).append([float(v) for v in w[1:]])
+    cols = ["step", "t", "photons", "sum_w", "sum_w_energy", "sum_w_chi", "lost"]
+    return {b: {c: np.array(v)[:, i] for i, c in enumerate(cols)} for b, v in rows.items()}
 
 
 def read_spinlog(fn):

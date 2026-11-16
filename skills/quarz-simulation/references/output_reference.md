@@ -19,6 +19,8 @@ Section numbers (§) refer to the README.md of https://github.com/AlexMPukhov/QU
   ⟨p_x²⟩ = ⟨p⊥²⟩/2, ⟨x p_x⟩ = ⟨r·p⊥⟩/2, means 0). Before 2026-10-30 they were the projections of the
   representative particles; for the parsed loader, which puts all of them at y = 0, σ_x was r_rms and
   ε_n,x about √2 too large and not conserved under radial forces.
+- **`timestep.txt`**, one line per step: step, t, Δt; with `time.adaptive` also γ_eff and n_max behind the
+  choice of the step (§5).
 - **`slices_<beam>_NNNNNN.txt`**: per-ξ-bin charge, ⟨x⟩, ⟨y⟩, σ_x, σ_y, ⟨γ⟩
   and ε_n,x, for hosing studies. Bins are `output.beam_slices` equal bins over
   `output.beam_slices_range` (empty bins are skipped).
@@ -42,7 +44,18 @@ Section numbers (§) refer to the README.md of https://github.com/AlexMPukhov/QU
   if a run is killed, the `.partN` files hold the data.
 - **`beam_<name>_NNNNNN.bin`**: int32 n, then n × (x, y, p_x, p_y, p_z, ξ, w), or n × (…, w, s_x, s_y, s_z)
   for a beam with `<beam>.spin` (readers infer 7 or 10 doubles from the file size).
-  Particles removed from the beam (w = 0) are not written.
+  Particles removed from the beam (w = 0) are not written. (The optical depth of the photon emission
+  is part of the checkpoints, not of the dumps.)
+- **Photon emission** (`<beam>.qed = 1`): **`photons_<beam>.bin`**, one record per emitted photon for the
+  whole run: char[8] "QZPHOTON", int32 version 1, int32 ncomp 13, then records of 13 float64: step, t
+  (emission time), x, y, ξ (emitter at the start of the sub-step), k_x, k_y, k_z (photon momentum in m c,
+  along the emitter's momentum; energy |k| m c²), w (weight of the emitter), ξ₁, ξ₂, ξ₃ (Stokes vector:
+  linear at 45°, circular, linear along e₁/e₂ of the emitter), χ (emitter). Sorted within each step
+  (independent of threads and ranks). **`qed.txt`**: per beam and step the macro-photons emitted in the
+  push, Σw, Σw ε_γ, Σw χ and the number of records that did not fit into the device buffer (sized from
+  the expected number of photons; normally 0, the emission itself is never affected). Readers:
+  `read_photons`, `read_qedlog` in `tools/quarz_read.py`. Restarts truncate both to the steps before the
+  checkpoint.
 - **openPMD** (`output.format = openpmd` or `both`): one file per output step,
   `openpmd/data_NNNNNN.h5` (or `.bp`, `.json`), following the
   [openPMD standard 1.1](https://github.com/openPMD/openPMD-standard).

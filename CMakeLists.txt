@@ -58,7 +58,9 @@ add_library(quarz_core
   src/OpenPMDWriter.cpp
   src/Laser.cpp
   src/LaserFile.cpp
-  src/Ionization.cpp)
+  src/Ionization.cpp
+  src/QEDRates.cpp
+  src/QEDSampling.cpp)
 target_include_directories(quarz_core PUBLIC src)
 target_compile_definitions(quarz_core PUBLIC QUARZ_VERSION="${PROJECT_VERSION}")
 target_link_libraries(quarz_core PUBLIC Kokkos::kokkos)
@@ -166,4 +168,16 @@ if(QUARZ_BUILD_TESTS)
   # sync, every input key named in the skills exists in the code, snippets and example inputs pass the check and run
   add_test(NAME agent_skill COMMAND sh ${CMAKE_SOURCE_DIR}/tests/agent_skill.sh $<TARGET_FILE:quarz>)
   add_test(NAME long_box_note COMMAND sh ${CMAKE_SOURCE_DIR}/tests/long_box_note.sh $<TARGET_FILE:quarz>)
+  add_executable(test_bessel tests/test_bessel.cpp)
+  target_link_libraries(test_bessel PRIVATE quarz_core)
+  add_test(NAME bessel COMMAND test_bessel)
+  add_executable(test_qed_rates tests/test_qed_rates.cpp)
+  target_link_libraries(test_qed_rates PRIVATE quarz_core)
+  add_test(NAME qed_rates COMMAND test_qed_rates)
+  add_executable(test_qed_tables tests/test_qed_tables.cpp)
+  target_link_libraries(test_qed_tables PRIVATE quarz_core)
+  add_test(NAME qed_tables COMMAND test_qed_tables)
+  add_executable(test_qed_sampling tests/test_qed_sampling.cpp)
+  target_link_libraries(test_qed_sampling PRIVATE quarz_core)
+  add_test(NAME qed_sampling COMMAND test_qed_sampling)
 endif()
