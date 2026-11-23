@@ -1,0 +1,59 @@
+# PWFA with photon emission (strong-field QED) of a 10 TeV witness in a blowout wake.
+# Plasma 2e18 cm^-3: c/omega_p = 3.76 um, 1/omega_p = 12.5 fs, E0 = 136 GV/m, eta = hbar omega_p/(m c^2) = 1.03e-7.
+#   driver:  500 pC electrons, gamma = 1e5, sigma_xi = 1, sigma_r = 0.5 (peak n_b = 7.45 n0), at xi = 6
+#   witness: 35 pC electrons, 10 TeV (gamma = 1.957e7), sigma_xi = sigma_r = 0.25 (n_b = 8.34 n0), normalized
+#            emittance 10 um = 2.66 c/omega_p, at xi = 11.5, near the rear of the bubble
+# chi = eta gamma r/2 ~ 0.25 at r = sigma_r: quantum regime (references/radiation_qed.md). Over t = 2700 (1 cm)
+# the witness radiates about 20 % of its energy (quarz_numbers.py estimates 25 % for a full channel), and the
+# stochastic emission spreads its energies over 1 ... 10 TeV.
+# Runs for a result (one or two minutes each on a few cores):
+#   quarz pwfa_qed_witness.in                                                    photon emission
+#   quarz pwfa_qed_witness.in qed.model=continuous output.dir=out_pwfa_sync      mean loss only (synchrotron x g(chi))
+#   quarz pwfa_qed_witness.in witness.qed=0 output.dir=out_pwfa_none            no radiation
+# Mean witness energy at t = 2700: 7.964 TeV (QED, rms 2.0 TeV) and 7.986 TeV (mean loss only, rms 1.2 TeV): they
+# agree to 0.3 %; the stochastic run loses a little more, because the power grows as gamma^2 and the spread raises
+# the mean of gamma^2. 3.6 photons per witness particle, mean chi of the emitters 0.31.
+units.n0_cm3 = 2e18          # also needed for the photon emission (it sets eta)
+
+# radial grid: fine over the witness (sigma_r/50) and the bubble, coarse outside
+grid.type      = regions
+grid.rmax      = 8
+grid.regions   = 0.6:0.005 2:0.02 8:0.08
+grid.max_ratio = 1.05
+
+xi.min  = 3                  # the driver starts 3 sigma behind the head
+xi.max  = 14
+xi.step = 0.02
+
+time.dt    = 10              # betatron period of the driver 2800: 280 steps per period
+time.steps = 270             # t = 2700 = 1 cm
+
+plasma.species = electrons
+electrons.ppc  = 4
+
+beams = driver witness
+driver.n0         = 7.45
+driver.gamma      = 1e5
+driver.espread    = 0.01
+driver.sigma_r    = 0.5
+driver.sigma_xi   = 1
+driver.xi0        = 6
+driver.emit_n     = 1
+driver.nparticles = 200000
+driver.scattering = 0        # units.n0_cm3 switches on Coulomb scattering; off here: radiation only
+
+witness.n0         = 8.34
+witness.gamma      = 1.957e7
+witness.espread    = 0.003
+witness.sigma_r    = 0.25
+witness.sigma_xi   = 0.25
+witness.xi0        = 11.5
+witness.emit_n     = 2.66
+witness.nparticles = 100000
+witness.scattering = 0
+witness.qed        = 1       # photon emission (the driver radiates < 1 %: off)
+witness.photon_min_energy = 1e5   # write only photons above 51 GeV (all are counted in qed.txt)
+
+output.dir         = out_pwfa_qed
+output.every       = 135
+output.beam_every  = 270

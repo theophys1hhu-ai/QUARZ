@@ -29,6 +29,9 @@ step      0  t =          0   sweep 5.066 s
 | `slices_<beam>_NNNNNN.txt` | per-slice beam moments (`output.beam_slices`), for hosing and micro-bunch studies |
 | `laser.txt` | laser runs: step, t, max \|a\|, w_rms, mean xi, L_rms, energy integral |
 | `openpmd/data_NNNNNN.h5` | with `output.format = openpmd` or `both` |
+| `qed.txt` | photon emission (`<beam>.qed = 1`): per beam and step the macro-photons, sum of weights, of weight x photon energy (m c^2), of weight x chi, lost records |
+| `photons_<beam>.bin` | photon emission: one record per photon (step, t, emitter position, photon momentum, weight, Stokes vector, chi); reading it: `radiation_qed.md` |
+| `spin.txt` | beams with `<beam>.spin`: mean spin and polarization per step |
 
 The exact formats are in `output_reference.md`.
 
@@ -50,7 +53,8 @@ python3 scripts/quick_look.py out --density 7e14
 ```
 
 prints, per output step, the largest on-axis E_z (in E0 and GV/m), where it is, and the largest on-axis electron
-density; and the first and last line of every beam. With matplotlib it writes `out/quicklook.png`.
+density; and the first and last line of every beam; with photon emission the photons per particle, the radiated
+energy and the mean chi of the emitters. With matplotlib it writes `out/quicklook.png`.
 
 ## What to look at
 
@@ -65,3 +69,5 @@ density; and the first and last line of every beam. With matplotlib it writes `o
 - **Self-modulation:** max |E_z| against z grows, saturates and decays; rho_beam on the axis shows the
   micro-bunches with the period of the plasma wave.
 - **Noise:** compare two runs with different `<beam>.seed`; what differs is noise.
+- **Radiation:** gamma_mean of the radiating beam falls by the radiated energy (photon energy in `qed.txt`);
+  gamma_rms grows by the quantum straggling. A run with `qed.model = continuous` must give the same mean.

@@ -7,7 +7,8 @@
 Prints one line per output step (largest on-axis wake field and where it is, largest electron density on the
 axis) and, for every beam, the first and the last line of beams.txt. With matplotlib it also writes
 <dir>/quicklook.png: on-axis E_z of the first and the last output step, the largest E_z against the propagation
-distance, and the beam moments against the distance.
+distance, and the beam moments against the distance. With photon emission (qed.txt) it sums the photons per
+beam particle, the radiated energy and the mean chi of the emitters.
 Units of the files: lengths c/omega_p, times 1/omega_p, fields E0 = m c omega_p / e, densities n0;
 xi = ct - z grows from the head of the box towards its tail.
 """
@@ -113,6 +114,29 @@ if os.path.exists(bf):
                   f" {row[5]:10.6g} {row[6]:9.4g} {row[7]:9.5g} {row[8]:8.4g} {row[14]:8.4g} {row[10]:9.4g}")
         if r[-1, 4] < 0.99 * r[0, 4]:
             print(f"#   {name}: {100 * (1 - r[-1, 4] / r[0, 4]):.1f} % of the charge lost (outside the box from the start, left it through the tail, or hit the wall)")
+
+# ---- qed.txt (photon emission, <beam>.qed = 1): beam step t photons sum_w sum_w_energy sum_w_chi lost
+qf = os.path.join(a.dir, "qed.txt")
+if os.path.exists(qf):
+    q = {}
+    with open(qf) as fh:
+        for line in fh:
+            if line.startswith("#") or not line.strip():
+                continue
+            w = line.split()
+            q.setdefault(w[0], []).append([float(x) for x in w[1:]])
+    print("# photon emission (qed.txt), whole run: photons per beam particle, radiated energy per particle [m c^2]"
+          " and relative to <gamma>(0), mean chi of the emitters, records lost")
+    for name, r in q.items():
+        r = np.array(r)
+        b = np.array(beams[name]) if name in beams else None
+        cw = abs(b[0, 4]) if b is not None and b[0, 4] != 0 else None     # |charge| = sum of the weights
+        sw, se = r[:, 3].sum(), r[:, 4].sum()
+        line = f"{name:>12s} macro-photons {int(r[:, 2].sum()):10d}"
+        if cw:
+            line += f"  per particle {sw / cw:9.4g}  energy {se / cw:10.5g}  = {se / cw / b[0, 5]:8.4g} <gamma>(0)"
+        line += f"  <chi> {r[:, 5].sum() / sw if sw > 0 else 0:8.4g}  lost {int(r[:, 6].sum())}"
+        print(line)
 
 # ---- figure (optional)
 try:

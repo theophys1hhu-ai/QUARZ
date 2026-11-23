@@ -7,6 +7,9 @@ n0, momenta in m c, fields in E0 = m c omega_p / e.
   python3 quarz_numbers.py --density 7e14 --length-m 10 \
       --particles 4e11 --species proton --energy-gev 400 --sigma-r-um 200 --sigma-z-um 5e4 --emit-n-um 3.5
   python3 quarz_numbers.py --density 1e18 --length-m 0.01 --wavelength-um 0.8 --a0 4 --w0-um 21 --tau-fs 30
+  python3 quarz_numbers.py --density 2e18 --length-m 0.01 --charge-pc 35 --energy-gev 1e4 --sigma-r-um 0.94 --sigma-z-um 0.94
+
+For electron and positron beams it also estimates the radiation in a full ion channel (chi, energy loss, photons).
 
 Prints the conversions and starting values for the input keys named in the right column.
 """
@@ -70,6 +73,32 @@ if a.particles or a.charge_pc:
         print(f"  betatron period in a full ion channel = {T:.4g} /omega_p = {T * kpinv * 1e-6:.4g} m")
         print(f"  input: time.dt <= {T / 20:.4g}  (20 steps per period; halve it for the convergence check;")
         print(f"         or time.adaptive = 1 for beams whose energy changes much)")
+    if gamma and a.sigma_r_um and mass == 1.0:
+        # radiation of a lepton beam in a full ion channel (E_r = r/2, focusing force r/2): chi = eta gamma r/2,
+        # eta = hbar omega_p/(m c^2); classical power dgamma/dt = (2 alpha/(3 eta)) chi^2 (code units), photons
+        # per time 5 alpha chi/(2 sqrt(3) eta gamma) = (5 alpha/(4 sqrt(3))) r. Averages over a round Gaussian
+        # beam: <r^2> = 2 sigma_r^2, <r> = sqrt(pi/2) sigma_r
+        alpha = 1 / 137.035999
+        eta = 1.0545718e-34 / tp / (0.51099895e6 * 1.602176634e-19)
+        sr = a.sigma_r_um / kpinv
+        chi = eta * gamma * sr / 2
+        nph = 5 * alpha / (4 * math.sqrt(3)) * math.sqrt(math.pi / 2) * sr   # photons per 1/omega_p (classical)
+        print(f"  radiation in a full ion channel: eta = hbar omega_p/(m c^2) = {eta:.4g};  chi = eta gamma r/2 = {chi:.3g} at r = sigma_r"
+              f" ({3 * chi:.3g} at 3 sigma_r)")
+        if a.length_m:
+            # mean energy: dgamma/dt = -(2 alpha/(3 eta)) <chi^2> g(chi_rms), <chi^2> = (eta gamma sigma_r)^2/2, with
+            # the fit g = (1 + 4.8 (1 + chi) ln(1 + 1.7 chi) + 2.44 chi^2)^(-2/3) (Baier, Katkov & Strakhovenko)
+            L = a.length_m * 1e6 / kpinv
+            g, n = gamma, 2000
+            for _ in range(n):
+                x = eta * g * sr / math.sqrt(2)
+                gq = (1 + 4.8 * (1 + x) * math.log(1 + 1.7 * x) + 2.44 * x * x) ** (-2.0 / 3.0)
+                g -= 2 * alpha / (3 * eta) * x * x * gq * L / n
+                g = max(g, 1.0)
+            print(f"    over {a.length_m} m at fixed sigma_r: mean energy loss {100 * (1 - g / gamma):.3g} % "
+                  f"(synchrotron with g(chi)), about {nph * L:.3g} photons per particle (upper bound)")
+        print(f"    {'chi >~ 0.01-0.1: quantum regime, <beam>.qed = 1' if chi > 0.01 else 'chi << 1: classical regime; <beam>.qed = 1 or pusher.rr_model = stochastic'}"
+              f"  (references/radiation_qed.md)")
 
 if a.wavelength_um:
     k0 = kpinv / (a.wavelength_um / (2 * math.pi))        # omega0/omega_p

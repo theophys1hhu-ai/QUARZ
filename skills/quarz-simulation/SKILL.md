@@ -1,6 +1,6 @@
 ---
 name: quarz-simulation
-description: Write, check, run and debug input files for the plasma wakefield code QUARZ (quasi-static particle-in-cell, RZ geometry, non-uniform radial grid, azimuthal modes m = 0 and 1). Use for beam-driven plasma wakefields (PWFA) with electron, positron or proton drivers, long proton bunches and self-modulation (AWAKE-like runs), witness bunches and beam loading, ion motion, hosing, laser wakefields in the envelope model, ionization, plasma density profiles and ramps over metres of plasma, and for choosing the grid and time step, reading the output (beams.txt, axis files, field files, openPMD) or finding out why a run gives wrong or noisy results. Not for full-PIC codes or for GEM-PIC-RZ. If quarz is not built yet, use the skill quarz-setup first.
+description: Write, check, run and debug input files for the plasma wakefield code QUARZ (quasi-static particle-in-cell, RZ geometry, non-uniform radial grid, azimuthal modes m = 0 and 1). Use for beam-driven plasma wakefields (PWFA) with electron, positron or proton drivers, long proton bunches and self-modulation (AWAKE-like runs), witness bunches and beam loading, ion motion, hosing, laser wakefields in the envelope model, ionization, radiation of high-energy lepton beams (betatron radiation, classical or stochastic radiation reaction, strong-field QED photon emission with spin and photon polarization), plasma density profiles and ramps over metres of plasma, and for choosing the grid and time step, reading the output (beams.txt, axis files, field files, openPMD) or finding out why a run gives wrong or noisy results. Not for full-PIC codes or for GEM-PIC-RZ. If quarz is not built yet, use the skill quarz-setup first.
 license: BSD-3-Clause
 compatibility: Needs a built quarz executable (skill quarz-setup) and a POSIX shell; python3 for the helper scripts (numpy for quick_look.py, matplotlib only for its figure).
 metadata:
@@ -20,6 +20,7 @@ and the driver then moves with a large time step. That is what makes metres of p
 | the laser carrier matters (few-cycle pulses, strong red-shift and depletion, structured light beyond the envelope model, flying focus), radiation or FEL, undulators, dielectric or metal structures | **GEM-PIC-RZ** (github.com/AlexMPukhov/GEM-PIC-RZ): resolves the carrier, keeps the forward radiation; it is not quasi-static |
 | self-injection at the bubble closure, down-ramp injection, backward waves, reflection, solid targets | a full PIC code (FBPIC, WarpX, Smilei, EPOCH) |
 | strongly non-axisymmetric beams (m >= 2: elliptical beams, offsets comparable to the beam size) | a 3D quasi-static code (HiPACE++, QuickPIC) or 3D PIC |
+| pair creation (Breit-Wheeler), photons that propagate or convert, QED in the field of a laser pulse (Compton scattering on the carrier), radiating plasma electrons | a PIC code with a QED module (Smilei, EPOCH, WarpX, OSIRIS); QUARZ emits photons from beam leptons only, as records |
 
 Inside QUARZ, plasma electrons that become trapped cannot be followed as plasma: they are removed, or (with
 `<species>.trap`, ionization injection) handed over to a beam. A trapped charge from QUARZ is a statement about
@@ -38,7 +39,8 @@ explain the choices, run it and read the result. Work in this order:
    - the plasma: density, profile along z (ramps, gradients, length), column radius, gas species if ionization or
      ion motion matters;
    - what is to be measured: wake amplitude and phase along z, energy gain and quality of a witness, the
-     micro-bunch train, hosing;
+     micro-bunch train, hosing; for multi-GeV to TeV leptons or dense plasmas also radiation losses, photon
+     spectra, spin polarization;
    - the propagation length, and first look or production accuracy.
    If the user wants no questions, or the request leaves only numerical choices open, go on with stated assumptions.
 2. **Say what you assume and discuss the choices, in physics terms:** the box (what it holds, where the head is),
@@ -69,7 +71,8 @@ Paths are relative to this skill's directory.
 
 More: `references/physics_rules.md` (model, resolution, time step, box, cost), `references/diagnostics.md`
 (output files, units, what to look at), `references/debugging.md` (symptoms and causes),
-`references/output_reference.md` (file formats, generated from the README).
+`references/output_reference.md` (file formats, generated from the README), `references/radiation_qed.md`
+(radiation of beam leptons: when it matters, which model, photon emission keys, photon output, checks).
 
 ## Examples
 
@@ -80,9 +83,10 @@ More: `references/physics_rules.md` (model, resolution, time step, box, cost), `
 | `examples/blowout_basic.in` | blowout of a dense electron driver: one quasi-static solve (rigid beam) | seconds |
 | `examples/pwfa_ion_motion.in` | driver and a strongly pinched, low-emittance witness, mobile hydrogen ions, 5e-4 cells on the axis | 100 steps, minutes |
 | `examples/lwfa_laser.in` | laser wake in the envelope model (0.8 um, a0 = 4, matched spot) with a witness in the first bucket | 100 steps, about 1 min |
+| `examples/pwfa_qed_witness.in` | blowout with a 10 TeV witness that radiates (photon emission, chi ~ 0.25, 20 % energy loss over 1 cm); with variants for the mean loss only and without radiation | 270 steps, 1-2 min |
 
 Further inputs in the repository's `examples/`: hosing (`modes = 1`), profiles from formulas, ionization, Trojan
-horse.
+horse; `examples/QED/`: photon emission tests with their theory (constant fields, spin, betatron oscillation).
 
 ## The input in one page
 
@@ -170,6 +174,14 @@ front: `<beam>.xi_cut_head`. Plasma profile along z: `plasma.z_table` (z:n pairs
    around a self-modulating beam: not without a convergence check in the smoothing length.
 10. **m = 1 costs about ten times m = 0** and covers small offsets and tilts only; keep `modes = 0` unless the
    question is hosing or misalignment.
+11. **Radiation is off by default.** Leptons radiate in the focusing field with the quantum parameter
+   chi = eta gamma r/2 (full ion channel, eta = hbar omega_p/(m c^2), 1.03e-7 at 2e18 cm^-3); `scripts/quarz_numbers.py`
+   prints chi and the expected loss for an electron or positron beam. Below chi ~ 1e-4 and a loss far below the energy
+   spread of interest it can be left out; for chi <~ 1e-2 `pusher.rr_model = stochastic` (with `pusher.rr_n0_cm3`)
+   gives the loss and its quantum noise cheaply; above, or for photon spectra and spin polarization, use the photon
+   emission `<beam>.qed = 1` (needs `units.n0_cm3`, which also switches on Coulomb scattering: `<beam>.scattering = 0`
+   for a radiation-only comparison). Never combine `<beam>.qed` with `imp_rr` or `pusher.rr_model`. The time step
+   stays at betatron period / 20: the emission sub-cycles the push itself. Details: `references/radiation_qed.md`.
 
 ## Verify before delivering
 
@@ -183,3 +195,6 @@ front: `<beam>.xi_cut_head`. Plasma profile along z: `plasma.z_table` (z:n pairs
    wake of the first step free of a jump along xi (rule 9)?
 4. For a result that will be used: repeat with `xi.step`, the radial cells and `time.dt` halved (one at a time)
    and report how much the measured quantity moved.
+5. With photon emission: `quick_look.py` prints the photons per particle, the radiated energy and the mean chi
+   (from `qed.txt`); compare the mean energy with a `qed.model = continuous` run (close; slightly lower with QED) and the spread with a second
+   `qed.seed` (checklist in `references/radiation_qed.md`).

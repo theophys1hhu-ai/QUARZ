@@ -18,10 +18,10 @@
 |---|---|
 | wakes of electron, positron, proton, muon beams; several beams | trapped plasma electrons as plasma (removed, or handed to a beam with `<species>.trap`) |
 | self-modulation, hosing (m = 1), beam loading, ion motion | m >= 2: elliptical beams, offsets comparable to the beam size |
-| plasma profiles in r and z, formulas, finite columns | radiation, the laser carrier, backward waves, reflection |
+| plasma profiles in r and z, formulas, finite columns | radiated fields (coherent or FEL radiation), the laser carrier, backward waves, reflection |
 | laser envelope, Laguerre-Gaussian vortex, LASY files | few-cycle pulses, strong red-shift of a depleted pulse |
 | field and impact ionization, ionization injection into a beam | recombination; laser energy loss to ionization |
-| radiation reaction, Coulomb scattering, spin of the beam | a converged height of the E_z spike at the bubble closure |
+| radiation reaction (classical, stochastic), photon emission of beam leptons with spin and photon polarization (strong-field QED, LCFA), Coulomb scattering, spin of the beam | a converged height of the E_z spike at the bubble closure; pair creation, photon transport, QED of plasma electrons or in a laser field |
 
 ## Step by step: a beam-driven run
 
@@ -43,6 +43,8 @@
 7. Beam particles: 1e5-1e6 for short bunches, millions for long bunches whose instability must grow from the
    seed and not from the noise.
 8. Output: `output.every` for the maps, `output.beam_every` for particles; thin the maps for long boxes.
+9. Radiation (leptons of many GeV, dense plasma, large betatron amplitudes): `quarz_numbers.py` prints chi and the
+   expected loss; choose the model from `radiation_qed.md` (rule 11 of SKILL.md).
 
 ## Long proton bunches (AWAKE-like)
 

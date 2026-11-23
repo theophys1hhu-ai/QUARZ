@@ -8,7 +8,7 @@ Goose and others) load the short description at start-up and the rest when a req
 | skill | content |
 |---|---|
 | `skills/quarz-setup` | clone, build (Kokkos, MPI, GPU), tests, how to run, where the output goes |
-| `skills/quarz-simulation` | which code for which problem; dialogue with the user; the input in one page; rules for grid, box, time step, noise; `references/` (input and output reference, physics rules, diagnostics, debugging); `examples/` (five inputs); `scripts/` (`quarz_numbers.py`, `check_input.sh`, `quick_look.py`) |
+| `skills/quarz-simulation` | which code for which problem; dialogue with the user; the input in one page; rules for grid, box, time step, noise, radiation; `references/` (input and output reference, physics rules, diagnostics, debugging, radiation of beam leptons and photon emission); `examples/` (six inputs); `scripts/` (`quarz_numbers.py`, `check_input.sh`, `quick_look.py`) |
 
 **Purpose.** The skills help the user run the code for a physics problem: the agent asks for what is missing,
 states its assumptions, writes the input, checks it, makes a short run and reads the first output with the user.
@@ -50,7 +50,20 @@ slices.
   skill files; the test then insists that the code and the README know it.
 
 The same pair of skills, sync script and test exists in GEM-PIC-RZ; the tests differ only in a block
-"code-specific settings".
+"code-specific settings" and in the key pattern of check 3, which here also allows upper case after the first
+letter of a key (`fields.external_B`).
+
+## Radiation and photon emission
+
+`references/radiation_qed.md` tells the agent when the radiation of beam leptons matters (chi = eta gamma r/2 in a
+full ion channel), which of the three models to take (classical drag with `imp_rr`, stochastic recoil with
+`pusher.rr_model`, photon emission with `<beam>.qed`), the photon emission keys, the photon output and the checks
+(stochastic against `qed.model = continuous`, a second seed). `quarz_numbers.py` prints eta, chi at sigma_r and
+the mean energy loss over the length (synchrotron with the fit of g(chi), gamma falling, fixed beam size):
+for the 10 TeV witness of `examples/pwfa_qed_witness.in` it estimates 25 % over 1 cm, the code gives 20 %
+(the witness is not in a full channel everywhere). `quick_look.py` sums `qed.txt`. The ```` ```quarz ````
+snippet of the reference (one electron in a constant field, chi = 1) gives 1.035 photons per particle and unit
+time against C0 W = 1.039.
 
 ## What the work on the skills found
 

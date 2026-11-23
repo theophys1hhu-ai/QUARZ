@@ -10,6 +10,7 @@ the user with the input and the log, and suggest an issue at https://github.com/
 | `UNKNOWN KEY: input key '...' was not used` | misspelt key; a key that does nothing in this setup (e.g. `time.nt_per_betatron` without `time.adaptive = 1`); or a `<beam>.key` whose beam is not listed in `beams` (the same for `plasma.species`) |
 | `ERROR (rank 0): ...` | wrong value or missing key; the message names it (e.g. `required key 'driver.length' is missing` for `<beam>.profile = flattop`). Parsed formulas: `parser: unknown symbol ...` names the position |
 | a laser key is refused | `laser.lambda0_um` needs `units.n0_cm3`; `laser.file` needs a build with HDF5 |
+| `<beam>.qed` is refused | needs `units.n0_cm3`; only electrons and positrons (charge +-1, mass 1), not rigid beams, not with `pusher.beam = imp_rr` or `pusher.rr_model = stochastic` / `gaussian` (radiation reaction twice) |
 
 Look up every key in `input_reference.md`; do not guess names from other codes (QUARZ has no blocks, no `--check`
 switch, and its lengths are in c/omega_p, not in metres).
@@ -35,6 +36,8 @@ switch, and its lengths are in c/omega_p, not in metres).
 | spike of E_z at the end of the bubble changes with resolution | expected in a quasi-static code; compare the fields behind it, use `plasma.smooth_length` |
 | a density ramp seems to act on the whole box at once | that is the model: the density of the box is the one at its head (rule 6 of SKILL.md) |
 | wake reflected or distorted near the wall | `grid.rmax` too small for the plasma response; enlarge it (coarse outer cells are cheap) |
+| a TeV beam loses far less energy than the classical formula | the quantum correction g(chi) (0.45 at chi = 0.25) and the falling gamma: `quarz_numbers.py` includes both; the classical drag (`imp_rr`, `pusher.rr_model`) is only valid for chi << 1 |
+| the radiating beam scatters or its emittance grows although only radiation was wanted | `units.n0_cm3` (needed by `<beam>.qed`) switches on Coulomb scattering: `<beam>.scattering = 0`, or keep it in all compared runs |
 | laser diffracts or focuses differently from a full PIC run | envelope model: check `time.dt` <= Rayleigh length / 8 and the resolution of the pulse; few-cycle or strongly depleted pulses are outside the model |
 
 ## Slow or too much output
@@ -44,6 +47,9 @@ switch, and its lengths are in c/omega_p, not in metres).
 - Many steps: MPI (`mpirun -np P`), which pipelines the steps.
 - Output: `output.every` larger, `output.fields` with the few components needed, `output.rmax`,
   `output.xi_stride`, `output.field_files = 0`.
+- Photon emission: the photon file grows by 104 bytes per photon; `<beam>.photon_min_energy` or
+  `qed.photon_output = 0`. The push of an emitting beam is sub-cycled (`qed.max_prob`): with very large chi it
+  can cost more than the sweep.
 
 ## Pitfalls: defaults and habits that surprise
 

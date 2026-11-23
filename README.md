@@ -383,8 +383,8 @@ D. Seipt et al., PRA 98, 023417 (2018):
   uses the χ → 0 limits S_B = 15πχ³/8, S_A = √3πχ³, S_L = 35πχ³/24, i.e. the Sokolov–Ternov rate
   1/τ = (5√3/8) α χ³/(ηγ) and limit −8√3/15. `qed.fixed_spin = 1` switches it off.
 - Not included: pair creation (Breit–Wheeler), emission in the laser field (the envelope has no
-  oscillating field), plasma electrons. `pusher.beam = imp_rr` (classical radiation reaction) cannot be
-  combined with `<beam>.qed`.
+  oscillating field), plasma electrons. `pusher.beam = imp_rr` (classical radiation reaction) and
+  `pusher.rr_model = stochastic | gaussian` cannot be combined with `<beam>.qed`.
 
 **External fields** (`fields.external_E`, `fields.external_B`: three numbers each, units m c ω_p/e):
 constant fields added to the fields acting on the beams (not on the plasma), e.g. for single-particle
